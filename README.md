@@ -40,6 +40,8 @@ python3 tools/parse_ssq.py 你的历史数据.txt data/draws.json
 - `data/draws.json`
 - `data/draws.js`
 
+若中国福彩网接口在 CI 环境中被风控拦截（403），脚本会自动降级到中彩网（`jc.zhcw.com`）公开接口；如仍失败，再尝试抓取中国福彩网网页（不保证可用）。
+
 配套的 GitHub Actions 工作流：`.github/workflows/update-data.yml`
 
 - 定时：每天 09:00（北京时间）运行一次

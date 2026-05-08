@@ -30,7 +30,8 @@
 
 - 最新一期接口（返回 JSON）：`https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=ssq&issueCount=1&systemType=PC`
   - 可直接拿到：期号（code）、开奖日期（date）、红球（red）、蓝球（blue）
-  - 若接口不可用，再降级到抓取页面 `https://www.cwl.gov.cn/ygkj/kjgg/`（不保证在 CI 环境可用）
+  - 若接口不可用/被风控拦截，再降级到中彩网（`jc.zhcw.com`）公开接口（JSONP）
+  - 如仍失败，再降级到抓取页面 `https://www.cwl.gov.cn/ygkj/kjgg/`（不保证在 CI 环境可用）
 
 自动化由 GitHub Actions 触发：
 
@@ -96,7 +97,7 @@
 - 请求接口 `findDrawNotice` 获取最新一期：
   - 解析 `code/date/red/blue`
   - 组装为站点数据结构
-- 若接口失败，降级到抓取 `https://www.cwl.gov.cn/ygkj/kjgg/` + 详情页方式
+- 若中国福彩网接口失败，先降级到中彩网接口；如仍失败，再降级到抓取 `https://www.cwl.gov.cn/ygkj/kjgg/` + 详情页方式
 - 校验数据合法性
 - 仅当 `issue` 为新增时：
   - 追加到 `data/draws.json` 的 `draws` 末尾
