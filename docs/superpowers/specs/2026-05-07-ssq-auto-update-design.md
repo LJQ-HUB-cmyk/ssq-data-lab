@@ -26,11 +26,11 @@
 
 ## 总体方案（方案A）
 
-抓取入口选择中国福彩网“阳光开奖”最新页：
+抓取入口优先使用中国福彩网开奖数据接口（避免网页反爬导致 403）：
 
-- 最新页：`https://www.cwl.gov.cn/ygkj/kjgg/`
-  - 可解析到最新一期期号与 6+1 开奖号码
-  - 页面内包含“详情”链接，进入详情页可解析到开奖日期
+- 最新一期接口（返回 JSON）：`https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=ssq&issueCount=1&systemType=PC`
+  - 可直接拿到：期号（code）、开奖日期（date）、红球（red）、蓝球（blue）
+  - 若接口不可用，再降级到抓取页面 `https://www.cwl.gov.cn/ygkj/kjgg/`（不保证在 CI 环境可用）
 
 自动化由 GitHub Actions 触发：
 
@@ -93,12 +93,10 @@
 职责：
 
 - 读取 `data/draws.json` 获取当前最新一期 `issue`
-- 抓取 `https://www.cwl.gov.cn/ygkj/kjgg/`：
-  - 解析最新一期 `issue`
-  - 解析 6 个红球与 1 个蓝球
-  - 解析“详情页链接”（形如 `/c/YYYY/MM/DD/xxxxxx.shtml`）
-- 抓取详情页：
-  - 解析开奖日期（形如 `开奖日期：2026-05-05`）
+- 请求接口 `findDrawNotice` 获取最新一期：
+  - 解析 `code/date/red/blue`
+  - 组装为站点数据结构
+- 若接口失败，降级到抓取 `https://www.cwl.gov.cn/ygkj/kjgg/` + 详情页方式
 - 校验数据合法性
 - 仅当 `issue` 为新增时：
   - 追加到 `data/draws.json` 的 `draws` 末尾

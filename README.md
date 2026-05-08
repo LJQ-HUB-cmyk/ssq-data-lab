@@ -35,7 +35,7 @@ python3 tools/parse_ssq.py 你的历史数据.txt data/draws.json
 
 ### 方式B：自动补齐最新一期（GitHub Actions + 中国福彩网抓取）
 
-仓库内提供 `tools/update_latest_ssq.ps1`，用于从中国福彩网“阳光开奖”页抓取最新一期，并在发现新期号时自动更新：
+仓库内提供 `tools/update_latest_ssq.ps1`，用于从中国福彩网开奖数据接口获取最新一期，并在发现新期号时自动更新：
 
 - `data/draws.json`
 - `data/draws.js`

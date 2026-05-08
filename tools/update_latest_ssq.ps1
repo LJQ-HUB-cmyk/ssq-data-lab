@@ -1,15 +1,20 @@
 param(
+  [string]$ApiJsonPath,
   [string]$HomeHtmlPath,
   [string]$DetailHtmlPath
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $DataJsonPath = Join-Path $RepoRoot "data/draws.json"
 $DataJsPath = Join-Path $RepoRoot "data/draws.js"
 
 function Get-HttpText([string]$Url) {
+  if ($ApiJsonPath -and $Url -match "/cwl_admin/.*/findDrawNotice" -and (Test-Path $ApiJsonPath)) {
+    return [string](Get-Content -Path $ApiJsonPath -Raw -Encoding utf8)
+  }
   if ($HomeHtmlPath -and $Url.EndsWith("/ygkj/kjgg/") -and (Test-Path $HomeHtmlPath)) {
     return [string](Get-Content -Path $HomeHtmlPath -Raw -Encoding utf8)
   }
@@ -17,11 +22,44 @@ function Get-HttpText([string]$Url) {
     return [string](Get-Content -Path $DetailHtmlPath -Raw -Encoding utf8)
   }
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
-  $resp = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec 25 -Headers @{ "User-Agent" = "Mozilla/5.0 (compatible; ssq-data-bot/1.0)" } -ErrorAction Stop
+  $headers = @{
+    "User-Agent" = "Mozilla/5.0 (compatible; ssq-data-bot/1.0)"
+    "Accept" = "text/html,application/json;q=0.9,*/*;q=0.8"
+    "Accept-Language" = "zh-CN,zh;q=0.9,en;q=0.6"
+    "Referer" = "https://www.cwl.gov.cn/ygkj/wqkjgg/ssq/"
+  }
+  $resp = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec 25 -Headers $headers -ErrorAction Stop
   return [string]$resp.Content
 }
 
-function Get-LatestFromCwl() {
+function Get-LatestFromCwlApi() {
+  $url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=ssq&issueCount=1&systemType=PC"
+
+  $jsonText = Get-HttpText $url
+  $res = $jsonText | ConvertFrom-Json
+  if (-not $res.result -or $res.result.Count -lt 1) { throw "api_empty_result" }
+  $it = $res.result[0]
+
+  $issue = [string]$it.code
+  $reds = @()
+  foreach ($x in ([string]$it.red).Split(",")) {
+    if ($x -ne "") { $reds += [int]$x }
+  }
+  $blue = [int]$it.blue
+  $date = $null
+  if ($it.date) { $date = [string]$it.date }
+
+  return @{
+    issue = $issue
+    year = [int]$issue.Substring(0, 4)
+    date = $date
+    reds = ($reds | Sort-Object)
+    blue = $blue
+    source = "api"
+  }
+}
+
+function Get-LatestFromCwlHtml() {
   $base = "https://www.cwl.gov.cn"
   $html = Get-HttpText "$base/ygkj/kjgg/"
 
@@ -74,6 +112,7 @@ function Get-LatestFromCwl() {
     reds = ($reds | Sort-Object)
     blue = $blue
     detailUrl = $detailUrl
+    source = "html"
   }
 }
 
@@ -99,10 +138,18 @@ $doc = $raw | ConvertFrom-Json
 if (-not $doc.draws) { throw "draws.json 缺少 draws 字段" }
 
 $lastIssue = [string]$doc.draws[-1].issue
-$latest = Get-LatestFromCwl
+$latest = $null
+try {
+  $latest = Get-LatestFromCwlApi
+} catch {
+  Write-Output "api_failed"
+  $latest = Get-LatestFromCwlHtml
+}
 Assert-Draw $latest
 
-Write-Output "current=$lastIssue fetched=$($latest.issue) url=$($latest.detailUrl)"
+$u = ""
+if ($latest.detailUrl) { $u = $latest.detailUrl }
+Write-Output "current=$lastIssue fetched=$($latest.issue) source=$($latest.source) url=$u"
 
 if ([string]$latest.issue -le $lastIssue) {
   Write-Output "no_update"
