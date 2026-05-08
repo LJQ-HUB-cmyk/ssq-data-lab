@@ -1,0 +1,37 @@
+name: Update SSQ Data
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update data files
+        shell: pwsh
+        run: |
+          ./tools/update_latest_ssq.ps1
+
+      - name: Commit & push if changed
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "no changes"
+            exit 0
+          fi
+          issue="$(node -e "const f=require('fs'); const d=JSON.parse(f.readFileSync('data/draws.json','utf8')); console.log(d.draws[d.draws.length-1].issue)")"
+          git config user.name "ssq-data-bot"
+          git config user.email "ssq-data-bot@users.noreply.github.com"
+          git add data/draws.json data/draws.js
+          git commit -m "chore(data): update ssq ${issue}"
+          git push
+

@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>双色球数据实验室</title>
+    <meta name="description" content="基于双色球历史数据的可视化分析与随机号码生成（娱乐用途）。" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-noise" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">
+          <span class="dot red"></span>
+          <span class="dot red"></span>
+          <span class="dot red"></span>
+          <span class="dot blue"></span>
+        </div>
+        <div class="brand-text">
+          <div class="kicker">SSQ Data Lab</div>
+          <div class="name">双色球数据实验室</div>
+        </div>
+      </div>
+
+      <nav class="tabs" aria-label="页面导航">
+        <button class="tab is-active" data-tab="overview">概览</button>
+        <button class="tab" data-tab="insight">冷热 / 遗漏</button>
+        <button class="tab" data-tab="generator">号码生成器</button>
+        <button class="tab" data-tab="data">数据</button>
+      </nav>
+
+      <div class="top-actions">
+        <button id="btnRefresh" class="btn ghost" title="重新加载数据">刷新</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="hero">
+        <div class="hero-left">
+          <h1>
+            用历史数据<br />
+            做一场<span class="ink">理性的彩票幻想</span>
+          </h1>
+          <p class="sub">
+            本站展示统计结果与可视化，并提供“加权随机”的号码推荐。
+            <strong>不构成任何中奖承诺</strong>，仅供学习与娱乐。
+          </p>
+          <div class="hero-metrics" id="heroMetrics">
+            <div class="metric">
+              <div class="label">期数</div>
+              <div class="value" id="mCount">—</div>
+            </div>
+            <div class="metric">
+              <div class="label">数据范围</div>
+              <div class="value" id="mRange">—</div>
+            </div>
+            <div class="metric">
+              <div class="label">最近一期</div>
+              <div class="value" id="mLatest">—</div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="hero-right">
+          <div class="card disclaimer">
+            <div class="card-title">免责声明</div>
+            <ul class="fine">
+              <li>彩票为随机事件，历史统计无法预测未来。</li>
+              <li>本工具仅输出“随机建议”，不提高中奖概率。</li>
+              <li>理性消费，量力而行；未成年人请勿参与。</li>
+            </ul>
+          </div>
+
+          <div class="card latest" id="latestCard" aria-live="polite">
+            <div class="card-title">最新开奖（数据内）</div>
+            <div class="latest-row">
+              <div>
+                <div class="fine muted">期号</div>
+                <div class="mono" id="latestIssue">—</div>
+              </div>
+              <div>
+                <div class="fine muted">日期</div>
+                <div class="mono" id="latestDate">—</div>
+              </div>
+            </div>
+            <div class="balls" id="latestBalls"></div>
+          </div>
+        </aside>
+      </section>
+
+      <!-- 概览 -->
+      <section class="panel is-active" id="panel-overview" data-panel="overview">
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">红球出现次数（全量）</div>
+            <div class="chart" id="chartRedAll"></div>
+            <div class="hint">红球范围 01–33，柱高为出现次数。</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">蓝球出现次数（全量）</div>
+            <div class="chart chart-blue" id="chartBlueAll"></div>
+            <div class="hint">蓝球范围 01–16。</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">近期窗口</div>
+            <div class="row">
+              <label class="field">
+                <span>近</span>
+                <input id="winSize" type="number" min="20" max="1000" step="10" value="200" />
+                <span>期</span>
+              </label>
+              <button id="btnApplyWin" class="btn">应用</button>
+            </div>
+            <div class="two-col">
+              <div>
+                <div class="fine muted">近期红球 Top 8</div>
+                <ol class="rank" id="rankRedRecent"></ol>
+              </div>
+              <div>
+                <div class="fine muted">近期蓝球 Top 6</div>
+                <ol class="rank" id="rankBlueRecent"></ol>
+              </div>
+            </div>
+            <div class="hint">
+              近期统计用于“加权随机”。窗口越小越偏向最新走势，但随机性同样更大。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 冷热/遗漏 -->
+      <section class="panel" id="panel-insight" data-panel="insight">
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">红球遗漏（距离上次出现的期数）</div>
+            <div class="chart" id="chartRedMiss"></div>
+            <div class="hint">数值越大，说明越久未出现。并不代表更“该出”。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">蓝球遗漏</div>
+            <div class="chart chart-blue" id="chartBlueMiss"></div>
+            <div class="hint">蓝球仅 1 个号码，波动更剧烈。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">快速解读</div>
+            <div class="chips" id="insightChips"></div>
+            <div class="callout">
+              <div class="callout-title">提示</div>
+              <div class="callout-body">
+                你可以把“冷热/遗漏”当作一个取样权重的旋钮：让随机更偏向某类号码，而不是“押注必出”。
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 号码生成器 -->
+      <section class="panel" id="panel-generator" data-panel="generator">
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">策略</div>
+            <div class="stack">
+              <label class="field">
+                <span>红球策略</span>
+                <select id="strategyRed">
+                  <option value="mix">混合（热+冷）</option>
+                  <option value="hot">偏热（近期高频）</option>
+                  <option value="cold">偏冷（近期低频）</option>
+                  <option value="uniform">均匀随机</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>蓝球策略</span>
+                <select id="strategyBlue">
+                  <option value="hot">偏热</option>
+                  <option value="cold">偏冷</option>
+                  <option value="uniform">均匀随机</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>权重强度</span>
+                <input id="alpha" type="range" min="0" max="200" value="90" />
+                <div class="fine muted">从“近似均匀” → “强烈偏好”。</div>
+              </label>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">约束（可选）</div>
+            <div class="checks">
+              <label class="check">
+                <input id="cSum" type="checkbox" checked />
+                <span>红球和值 70–150</span>
+              </label>
+              <label class="check">
+                <input id="cOdd" type="checkbox" checked />
+                <span>奇数个数 2–4</span>
+              </label>
+              <label class="check">
+                <input id="cSpan" type="checkbox" />
+                <span>跨度 ≥ 18</span>
+              </label>
+              <label class="check">
+                <input id="cNo4SameZone" type="checkbox" />
+                <span>单区(1-11/12-22/23-33)不超过 4 个</span>
+              </label>
+            </div>
+            <div class="hint">
+              约束只是“审美过滤”，不是预测规则。约束越多，可生成的组合越少。
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">生成</div>
+            <div class="row">
+              <label class="field">
+                <span>生成注数</span>
+                <input id="genN" type="number" min="1" max="20" value="5" />
+              </label>
+              <button id="btnGen" class="btn primary">生成推荐</button>
+            </div>
+            <div class="results" id="results"></div>
+            <div class="hint">
+              号码会在页面本地生成，不会上传你的任何信息。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 数据表 -->
+      <section class="panel" id="panel-data" data-panel="data">
+        <div class="card">
+          <div class="card-title">开奖数据（最近 50 期）</div>
+          <div class="row">
+            <label class="field grow">
+              <span>按期号搜索</span>
+              <input id="qIssue" placeholder="例如：2026046" />
+            </label>
+            <button id="btnSearch" class="btn">搜索</button>
+            <button id="btnClear" class="btn ghost">清除</button>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="table">
+              <thead>
+                <tr>
+                  <th>期号</th>
+                  <th>日期</th>
+                  <th>红球</th>
+                  <th>蓝球</th>
+                </tr>
+              </thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+          <div class="fine muted" id="dataFootnote"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="fine muted">
+        数据文件：<span class="mono">/data/draws.json</span>（由你上传的历史数据解析生成）
+      </div>
+      <div class="fine muted">
+        Made for analysis & play. Not for promises.
+      </div>
+    </footer>
+
+    <!-- 兼容 file:// 直接打开：提供内置数据（window.__SSQ_DATA__） -->
+    <script src="./data/draws.js" defer></script>
+    <script src="./assets/app.js" defer></script>
+  </body>
+</html>
