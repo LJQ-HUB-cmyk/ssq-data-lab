@@ -11,7 +11,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $DataJsonPath = Join-Path $RepoRoot "data/draws.json"
 $DataJsPath = Join-Path $RepoRoot "data/draws.js"
 
-function Get-HttpText([string]$Url) {
+function Get-HttpText([string]$Url, [hashtable]$ExtraHeaders = $null) {
   if ($ApiJsonPath -and $Url -match "/cwl_admin/.*/findDrawNotice" -and (Test-Path $ApiJsonPath)) {
     return [string](Get-Content -Path $ApiJsonPath -Raw -Encoding utf8)
   }
@@ -28,7 +28,11 @@ function Get-HttpText([string]$Url) {
     "Accept-Language" = "zh-CN,zh;q=0.9,en;q=0.6"
     "Referer" = "https://www.cwl.gov.cn/ygkj/wqkjgg/ssq/"
   }
-  $resp = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec 25 -Headers $headers -ErrorAction Stop
+  if ($ExtraHeaders) {
+    foreach ($k in $ExtraHeaders.Keys) { $headers[$k] = $ExtraHeaders[$k] }
+  }
+  if (-not $script:WebSession) { $script:WebSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession }
+  $resp = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec 25 -Headers $headers -WebSession $script:WebSession -ErrorAction Stop
   return [string]$resp.Content
 }
 
@@ -56,6 +60,40 @@ function Get-LatestFromCwlApi() {
     reds = ($reds | Sort-Object)
     blue = $blue
     source = "api"
+  }
+}
+
+function Get-LatestFromZhcwApi() {
+  $ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $url = "https://jc.zhcw.com/port/client_json.php?callback=jQuery1122_1&transactionType=10001001&lotteryId=1&issueCount=1&startIssue=&endIssue=&startDate=&endDate=&type=0&pageNum=1&pageSize=1&tt=0.1&_=$ts"
+
+  $text = Get-HttpText $url @{
+    "Accept" = "*/*"
+    "Referer" = "https://www.zhcw.com/"
+  }
+  $m = [regex]::Match($text, "^[^(]*\\((?<j>[\\s\\S]*)\\)\\s*;?\\s*$", [System.Text.RegularExpressions.RegexOptions]::Singleline)
+  if (-not $m.Success) { throw "zhcw_jsonp_parse_failed" }
+  $res = $m.Groups["j"].Value | ConvertFrom-Json
+  if (-not $res.data -or $res.data.Count -lt 1) { throw "zhcw_empty_result" }
+  $it = $res.data[0]
+
+  $issue = [string]$it.issue
+  $date = $null
+  if ($it.openTime) { $date = [string]$it.openTime }
+
+  $reds = @()
+  foreach ($x in ([string]$it.frontWinningNum).Split(" ")) {
+    if ($x -ne "") { $reds += [int]$x }
+  }
+  $blue = [int]$it.backWinningNum
+
+  return @{
+    issue = $issue
+    year = [int]$issue.Substring(0, 4)
+    date = $date
+    reds = ($reds | Sort-Object)
+    blue = $blue
+    source = "zhcw"
   }
 }
 
@@ -142,8 +180,13 @@ $latest = $null
 try {
   $latest = Get-LatestFromCwlApi
 } catch {
-  Write-Output "api_failed"
-  $latest = Get-LatestFromCwlHtml
+  Write-Output "cwl_failed"
+  try {
+    $latest = Get-LatestFromZhcwApi
+  } catch {
+    Write-Output "zhcw_failed"
+    $latest = Get-LatestFromCwlHtml
+  }
 }
 Assert-Draw $latest
 
