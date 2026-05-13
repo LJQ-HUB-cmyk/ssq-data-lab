@@ -1,10 +1,20 @@
 # 双色球数据实验室 · SSQ Data Lab
 
+[![Live Demo](https://img.shields.io/badge/demo-online-brightgreen?style=flat-square)](https://wanghao137.github.io/ssq-data-lab/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
+[![Tests](https://img.shields.io/badge/tests-61%20passed-success?style=flat-square)](./tests)
+[![No build step](https://img.shields.io/badge/build-zero--config-informational?style=flat-square)](./index.html)
+
 [English](./README.en.md) · **中文**
 
 一个**诚实**的双色球历史数据分析站点：用 3400+ 期真实开奖数据做可视化、分布分析、卡方检验与娱乐性号码推荐。**不预测、不承诺中奖、不引导购彩**。
 
 > 彩票是独立同分布的随机事件。历史频率无法预测未来——这个项目就是要用数据本身证明这一点。
+
+## Live Demo
+
+- **GitHub Pages**：<https://wanghao137.github.io/ssq-data-lab/>
+- **国内镜像（Cloudflare Pages）**：待上线，见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
 
 ## 特性
 
@@ -18,20 +28,11 @@
 
 **技术栈**：原生 ES modules + SVG，零构建；Python stdlib 抓取；Node.js / unittest 测试。**无任何 runtime 依赖**。
 
-## Live Demo
-
-<!-- TODO: GitHub Pages / Cloudflare Pages 上线后替换 -->
-
-- GitHub Pages：`https://<username>.github.io/ssq-data-lab/`
-- 国内镜像（Cloudflare Pages）：`https://ssq-data-lab.pages.dev/`
-
-> 还没部署？见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)，配好 CI 后 push 即发布。
-
 ## 快速开始
 
 ```bash
 # 克隆
-git clone https://github.com/<username>/ssq-data-lab
+git clone https://github.com/wanghao137/ssq-data-lab
 cd ssq-data-lab
 
 # 起服务器

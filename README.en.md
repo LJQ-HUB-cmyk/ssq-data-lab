@@ -1,10 +1,20 @@
 # SSQ Data Lab · 双色球数据实验室
 
+[![Live Demo](https://img.shields.io/badge/demo-online-brightgreen?style=flat-square)](https://wanghao137.github.io/ssq-data-lab/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
+[![Tests](https://img.shields.io/badge/tests-61%20passed-success?style=flat-square)](./tests)
+[![No build step](https://img.shields.io/badge/build-zero--config-informational?style=flat-square)](./index.html)
+
 **English** · [中文](./README.md)
 
 An **honest** data lab for Union Lotto (SSQ, 双色球): 3,400+ historical draws analysed with visualisations, distribution stats, chi-square goodness-of-fit testing, and a recreational number generator. **No prediction. No promises. Not a gambling tool.**
 
 > Lottery draws are i.i.d. random events. Historical frequencies cannot predict the future. This project exists to *demonstrate* that point with data.
+
+## Live Demo
+
+- **GitHub Pages**: <https://wanghao137.github.io/ssq-data-lab/>
+- **Cloudflare Pages (China-friendly mirror)**: coming soon — see [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
 
 ## Features
 
@@ -18,17 +28,12 @@ An **honest** data lab for Union Lotto (SSQ, 双色球): 3,400+ historical draws
 
 **Stack**: vanilla ES modules + SVG, **zero build**; Python stdlib for scraping; `node --test` / `unittest` for tests. **No runtime dependencies.**
 
-## Live Demo
-
-- GitHub Pages: `https://<username>.github.io/ssq-data-lab/`
-- Cloudflare Pages (China-friendly mirror): `https://ssq-data-lab.pages.dev/`
-
 See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) to deploy your own.
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/<username>/ssq-data-lab
+git clone https://github.com/wanghao137/ssq-data-lab
 cd ssq-data-lab
 
 npm run serve           # http://localhost:5173/

@@ -13,7 +13,7 @@
 
 1. 仓库 Settings → Pages → Build and deployment → Source 选 **GitHub Actions**
 2. push 到 `main` 即触发部署
-3. 访问地址：`https://<username>.github.io/<repo-name>/`
+3. 访问地址：<https://wanghao137.github.io/ssq-data-lab/>
 
 ## 2. Cloudflare Pages（国内友好，推荐）
 
