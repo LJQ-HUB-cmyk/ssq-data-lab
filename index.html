@@ -31,11 +31,15 @@
         </div>
       </div>
 
-      <nav class="tabs" aria-label="页面导航">
-        <button class="tab is-active" data-tab="overview">概览</button>
-        <button class="tab" data-tab="insight">冷热 / 遗漏</button>
-        <button class="tab" data-tab="generator">号码生成器</button>
-        <button class="tab" data-tab="data">数据</button>
+      <nav class="tabs" role="tablist" aria-label="页面导航">
+        <button class="tab is-active" role="tab" aria-selected="true" tabindex="0" data-tab="overview">概览</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="trend">走势图</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="insight">冷热 / 遗漏</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="distribution">分布</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="generator">生成器</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="tools">胆拖工具</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="science">科学态度</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="data">数据</button>
       </nav>
 
       <div class="top-actions">
@@ -165,6 +169,165 @@
         </div>
       </section>
 
+      <!-- 基本走势图 -->
+      <section class="panel" id="panel-trend" data-panel="trend">
+        <div class="card">
+          <div class="card-title">红球走势图</div>
+          <div class="row">
+            <label class="field">
+              <span>窗口</span>
+              <select id="trendWindow">
+                <option value="30">近 30 期</option>
+                <option value="50" selected>近 50 期</option>
+                <option value="100">近 100 期</option>
+              </select>
+            </label>
+            <span class="fine muted">点阵表示该号码在该期是否出现；红色=红球命中，蓝色=蓝球。</span>
+          </div>
+          <div class="trend-wrap" id="trendRed"></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="card-title">蓝球走势图</div>
+          <div class="trend-wrap" id="trendBlue"></div>
+        </div>
+      </section>
+
+      <!-- 分布分析 -->
+      <section class="panel" id="panel-distribution" data-panel="distribution">
+        <div class="panel-grid panel-grid-3">
+          <div class="card">
+            <div class="card-title">奇偶比</div>
+            <ol class="rank" id="distOddEven"></ol>
+            <div class="hint">6 个红球中奇偶个数比。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">大小比（分界 16）</div>
+            <ol class="rank" id="distBigSmall"></ol>
+            <div class="hint">&gt;16 算大；分界点是行业常用值。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">质合比</div>
+            <ol class="rank" id="distPrime"></ol>
+            <div class="hint">质数：2,3,5,7,11,13,17,19,23,29,31。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">012 路比</div>
+            <ol class="rank" id="dist012"></ol>
+            <div class="hint">按 号码 mod 3 分三路。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">三区比（1-11 / 12-22 / 23-33）</div>
+            <ol class="rank" id="distZone"></ol>
+            <div class="hint">三个区间的分布比例。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">AC 值分布</div>
+            <ol class="rank" id="distAC"></ol>
+            <div class="hint">离散度指标 0-10；越大越"散"。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">和值分布</div>
+            <div class="chart" id="chartSum"></div>
+            <div class="hint">6 个红球相加，理论范围 21-183。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">跨度分布</div>
+            <div class="chart chart-gold" id="chartSpan"></div>
+            <div class="hint">最大红球 - 最小红球；理论范围 5-32。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 胆拖工具 -->
+      <section class="panel" id="panel-tools" data-panel="tools">
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">胆拖注数试算</div>
+            <div class="stack">
+              <label class="field">
+                <span>胆码数</span>
+                <input id="danCount" type="number" min="0" max="5" value="2" />
+              </label>
+              <label class="field">
+                <span>拖码数</span>
+                <input id="tuoCount" type="number" min="4" max="33" value="10" />
+              </label>
+              <label class="field">
+                <span>蓝球数</span>
+                <input id="blueCount" type="number" min="1" max="16" value="1" />
+              </label>
+              <button id="btnCalcDanTuo" class="btn primary">计算</button>
+            </div>
+            <div class="result-big" id="danTuoResult">—</div>
+            <div class="hint">胆码：必选的红球；拖码：候选的红球。胆码+拖码 ≥ 6。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">复式注数试算</div>
+            <div class="stack">
+              <label class="field">
+                <span>红球数</span>
+                <input id="complexRed" type="number" min="6" max="33" value="8" />
+              </label>
+              <label class="field">
+                <span>蓝球数</span>
+                <input id="complexBlue" type="number" min="1" max="16" value="1" />
+              </label>
+              <button id="btnCalcComplex" class="btn primary">计算</button>
+            </div>
+            <div class="result-big" id="complexResult">—</div>
+            <div class="hint">复式：选 &gt;6 个红球，所有 6 组合都投。</div>
+          </div>
+          <div class="card">
+            <div class="card-title">常用参考</div>
+            <table class="table mini">
+              <thead><tr><th>红球数</th><th>注数</th><th>金额</th></tr></thead>
+              <tbody id="refTable"></tbody>
+            </table>
+            <div class="hint">单蓝球；每注 2 元。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 科学态度（卡方检验） -->
+      <section class="panel" id="panel-science" data-panel="science">
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">卡方拟合优度检验：红球</div>
+            <div class="metric-block">
+              <div class="metric-line"><span>卡方统计量 χ²</span><strong class="mono" id="chiRed">—</strong></div>
+              <div class="metric-line"><span>自由度 df</span><strong class="mono">32</strong></div>
+              <div class="metric-line"><span>p 值</span><strong class="mono" id="pRed">—</strong></div>
+              <div class="metric-line"><span>能否拒绝"均匀分布"假设（α=0.05）</span><strong id="rejectRed">—</strong></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">卡方拟合优度检验：蓝球</div>
+            <div class="metric-block">
+              <div class="metric-line"><span>卡方统计量 χ²</span><strong class="mono" id="chiBlue">—</strong></div>
+              <div class="metric-line"><span>自由度 df</span><strong class="mono">15</strong></div>
+              <div class="metric-line"><span>p 值</span><strong class="mono" id="pBlue">—</strong></div>
+              <div class="metric-line"><span>能否拒绝"均匀分布"假设（α=0.05）</span><strong id="rejectBlue">—</strong></div>
+            </div>
+          </div>
+          <div class="card" style="grid-column: 1 / -1">
+            <div class="card-title">怎么解读？</div>
+            <div class="callout">
+              <div class="callout-title">结论（科学姿态）</div>
+              <div class="callout-body" id="scienceVerdict">
+                正在计算...
+              </div>
+            </div>
+            <ul class="fine" style="margin-top:12px">
+              <li><strong>原假设 H₀</strong>：每个号码被摇出的概率相同（均匀分布）。</li>
+              <li><strong>p 值</strong>：若真的是均匀分布，观察到当前或更极端结果的概率。</li>
+              <li>p &gt; 0.05 → 没有足够证据拒绝 H₀ → 数据与"均匀随机"一致。</li>
+              <li>p &lt; 0.05 → 可以拒绝 H₀ → 有显著偏差（但不等于可预测，可能只是样本量或硬件偏差）。</li>
+              <li>换句话说：<strong>历史频率偏差不是"下一期会补回"的依据</strong>，它只可能是"摇奖设备的随机性缺陷"。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <!-- 号码生成器 -->
       <section class="panel" id="panel-generator" data-panel="generator">
         <div class="panel-grid">
@@ -193,8 +356,8 @@
               <label class="field">
                 <span>权重强度</span>
                 <input id="alpha" type="range" min="0" max="200" value="90" />
-                <div class="fine muted">从“近似均匀” → “强烈偏好”。</div>
               </label>
+              <div class="fine muted">从“近似均匀” → “强烈偏好”。</div>
             </div>
           </div>
 
@@ -281,6 +444,6 @@
 
     <!-- 兼容 file:// 直接打开：提供内置数据（window.__SSQ_DATA__） -->
     <script src="./data/draws.js" defer></script>
-    <script src="./assets/app.js" defer></script>
+    <script type="module" src="./assets/js/main.js"></script>
   </body>
 </html>
