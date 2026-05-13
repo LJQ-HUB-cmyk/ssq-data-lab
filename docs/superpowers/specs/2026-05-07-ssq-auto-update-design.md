@@ -4,12 +4,12 @@
 
 当前仓库为纯静态站点：
 
-- 前端入口：`index.html` + `assets/app.js` + `assets/styles.css`
+- 前端入口：`index.html` + `assets/js/*.js`（ES modules） + `assets/styles.css`
 - 数据来源：`data/draws.json`
 - `file://` 直接打开兜底：`data/draws.js`（注入 `window.__SSQ_DATA__`）
 - 历史数据最初来自本地上传的 xlsx/txt，通过 `tools/parse_ssq.py` 离线解析生成 `data/draws.json`
 
-当前仓库不存在任何联网抓取逻辑，因此数据不会自动更新。
+> **2026-05-13 更新**：本文档初版方案（PowerShell + 中国福彩网 API/HTML）已弃用 —— `cwl.gov.cn` 全量被阿里云盾拦截（403 Forbidden，haplat.net WAF）。现行实现改为 Python + 500.com，详见 `tools/update_ssq.py`。
 
 ## 目标
 

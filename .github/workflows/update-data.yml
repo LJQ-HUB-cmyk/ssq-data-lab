@@ -2,7 +2,8 @@ name: Update SSQ Data
 
 on:
   schedule:
-    - cron: "0 1 * * *"
+    # 北京时间每天 22:30 跑一次（开奖在 21:15 左右，留足缓冲）
+    - cron: "30 14 * * 0,2,4"
   workflow_dispatch: {}
 
 permissions:
@@ -16,10 +17,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Update data files
-        shell: pwsh
-        run: |
-          ./tools/update_latest_ssq.ps1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch latest SSQ draws
+        run: python tools/update_ssq.py --count 30
 
       - name: Commit & push if changed
         shell: bash
@@ -28,10 +31,9 @@ jobs:
             echo "no changes"
             exit 0
           fi
-          issue="$(node -e "const f=require('fs'); const d=JSON.parse(f.readFileSync('data/draws.json','utf8')); console.log(d.draws[d.draws.length-1].issue)")"
+          issue="$(python -c "import json; d=json.load(open('data/draws.json','r',encoding='utf-8')); print(d['draws'][-1]['issue'])")"
           git config user.name "ssq-data-bot"
           git config user.email "ssq-data-bot@users.noreply.github.com"
           git add data/draws.json data/draws.js
           git commit -m "chore(data): update ssq ${issue}"
           git push
-
