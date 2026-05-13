@@ -2,10 +2,10 @@
 
 ## 推荐：双通道部署
 
-| 通道 | 目标受众 | 国内访问 | 备案要求 |
-|---|---|---|---|
-| GitHub Pages | 海外 / 技术用户 | 时好时坏 | ❌ |
-| **Cloudflare Pages** | 国内用户 | 相对稳定 | ❌ |
+| 通道 | 目标受众 | 国内访问 | 备案要求 | 当前状态 |
+|---|---|---|---|---|
+| [GitHub Pages](https://wanghao137.github.io/ssq-data-lab/) | 海外 / 技术用户 | 时好时坏 | ❌ | ✅ 已上线 |
+| [**Cloudflare Pages**](https://ssq-data-lab.pages.dev/) | 国内用户 | 相对稳定 | ❌ | ✅ 已上线 |
 
 ## 1. GitHub Pages（自动）
 
@@ -19,18 +19,22 @@
 
 CF Pages 不需要备案，免费额度无限，在国内访问比 vercel.app / netlify.app 稳定。
 
-**步骤**：
+**步骤（踩坑后的正确版）**：
 
-1. 登录 <https://dash.cloudflare.com/> → **Workers & Pages** → **Create** → **Pages**
-2. 选 **Connect to Git** → 授权并选中这个仓库
-3. Build 配置：
+1. 登录 <https://dash.cloudflare.com/> → **Workers & Pages**
+2. 点 **Create application**，**务必选 Pages 标签页，不是 Workers**
+   - 两者 UI 相似，走错会用 Worker 模式部署（拉 wrangler 二进制会超 25MB 大小限制）
+   - 如果找不到 Pages 入口，直接用 URL：`https://dash.cloudflare.com/?to=/:account/pages/new`
+3. 选 **Connect to Git** → 授权并选中这个仓库
+4. Build 配置：
+   - Project name: `ssq-data-lab`（决定 `xxx.pages.dev` 前缀）
    - Production branch: `main`
-   - Framework preset: **None**
-   - Build command: 留空
-   - Build output directory: `/`
-4. **Save and Deploy**
+   - **Framework preset: None**（必须）
+   - **Build command: 留空**
+   - **Build output directory: 留空**（或填 `/`）
+5. **Save and Deploy**
 
-提交 `main` 后 1-2 分钟即自动上线。默认域名形如 `ssq-data-lab.pages.dev`。
+1-2 分钟后即自动上线，本项目实测：<https://ssq-data-lab.pages.dev/>
 
 ### 绑自定义域名
 

@@ -1,6 +1,7 @@
 # 双色球数据实验室 · SSQ Data Lab
 
-[![Live Demo](https://img.shields.io/badge/demo-online-brightgreen?style=flat-square)](https://wanghao137.github.io/ssq-data-lab/)
+[![GitHub Pages](https://img.shields.io/badge/demo-github%20pages-brightgreen?style=flat-square&logo=github)](https://wanghao137.github.io/ssq-data-lab/)
+[![Cloudflare Pages](https://img.shields.io/badge/镜像-cloudflare%20pages-f38020?style=flat-square&logo=cloudflare&logoColor=white)](https://ssq-data-lab.pages.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 [![Tests](https://img.shields.io/badge/tests-61%20passed-success?style=flat-square)](./tests)
 [![No build step](https://img.shields.io/badge/build-zero--config-informational?style=flat-square)](./index.html)
@@ -13,8 +14,8 @@
 
 ## Live Demo
 
-- **GitHub Pages**：<https://wanghao137.github.io/ssq-data-lab/>
-- **国内镜像（Cloudflare Pages）**：待上线，见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
+- **GitHub Pages**（海外友好）：<https://wanghao137.github.io/ssq-data-lab/>
+- **Cloudflare Pages**（国内友好镜像）：<https://ssq-data-lab.pages.dev/>
 
 ## 特性
 
