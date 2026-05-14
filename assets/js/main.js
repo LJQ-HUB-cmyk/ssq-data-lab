@@ -38,6 +38,8 @@ import {
   setRefreshLoading,
   readWinSize,
   readGeneratorConfig,
+  showGenError,
+  setGenDiagnostics,
 } from "./ui.js";
 
 const state = {
@@ -221,15 +223,30 @@ function onGenerate() {
   const freqR = freqFromDraws(recent, "reds", RED_MAX);
   const freqB = freqFromDraws(recent, "blue", BLUE_MAX);
   const cfg = readGeneratorConfig();
-  const result = generateTickets({
-    freqR, freqB,
-    strategyRed: cfg.strategyRed,
-    strategyBlue: cfg.strategyBlue,
-    alpha: cfg.alpha,
-    constraints: cfg.constraints,
-    count: cfg.count,
-  });
-  renderTickets(result.tickets, { tries: result.tries, failureReasons: result.failureReasons });
+  const lastDraw = state.draws[state.draws.length - 1];
+  const avoidLast = cfg.avoidLast && lastDraw ? lastDraw.reds : [];
+  try {
+    const result = generateTickets({
+      freqR, freqB,
+      strategyRed: cfg.strategyRed,
+      strategyBlue: cfg.strategyBlue,
+      alpha: cfg.alpha,
+      constraints: cfg.constraints,
+      count: cfg.count,
+      includeRed: cfg.includeRed,
+      excludeRed: cfg.excludeRed,
+      excludeBlue: cfg.excludeBlue,
+      avoidLast,
+    });
+    renderTickets(result.tickets, { tries: result.tries, failureReasons: result.failureReasons });
+    setGenDiagnostics(
+      `已生成 ${result.tickets.length}/${cfg.count} 注 · 尝试 ${result.tries} 次` +
+      (avoidLast.length ? ` · 已避开上一期 ${avoidLast.length} 个红球` : "")
+    );
+  } catch (e) {
+    showGenError(e.message || String(e));
+    setGenDiagnostics("");
+  }
 }
 
 function onSearch() {

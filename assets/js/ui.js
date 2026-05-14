@@ -1,4 +1,4 @@
-import { $, $$, pad2, makeBall, createEl, clamp } from "./utils.js";
+import { $, $$, pad2, makeBall, createEl, clamp, parseNumList } from "./utils.js";
 import { topN, bottomN, sumOf, oddCountOf, spanOf, zoneCounts } from "./stats.js";
 
 export function setupTabs(onChange) {
@@ -202,6 +202,27 @@ export function readGeneratorConfig() {
       odd: $("#cOdd").checked,
       span: $("#cSpan").checked,
       zone: $("#cNo4SameZone").checked,
+      ac: $("#cAC")?.checked || false,
+      noConsec: $("#cNoConsec")?.checked || false,
     },
+    includeRed: parseNumList($("#includeRed")?.value, 1, 33),
+    excludeRed: parseNumList($("#excludeRed")?.value, 1, 33),
+    excludeBlue: parseNumList($("#excludeBlue")?.value, 1, 16),
+    avoidLast: $("#cAvoidLast")?.checked || false,
   };
+}
+
+export function showGenError(message) {
+  const wrap = $("#results");
+  wrap.innerHTML = "";
+  wrap.appendChild(createEl("div", {
+    cls: "fine",
+    html: `<span class="chip chip-warn">${message}</span>`,
+  }));
+}
+
+export function setGenDiagnostics(text) {
+  const el = $("#genDiag");
+  if (!el) return;
+  el.textContent = text || "";
 }

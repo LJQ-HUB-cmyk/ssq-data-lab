@@ -37,3 +37,23 @@ export function debounce(fn, ms = 180) {
     t = setTimeout(() => fn(...args), ms);
   };
 }
+
+// 把用户输入的"01, 5 7、12；33"解析为去重 + 范围过滤后的整数数组。
+// 支持的分隔符：英文/中文逗号、空白、分号、顿号。
+export function parseNumList(input, lo = -Infinity, hi = Infinity) {
+  if (input == null) return [];
+  const raw = String(input).split(/[\s,，、;；]+/);
+  const out = [];
+  const seen = new Set();
+  for (const tok of raw) {
+    const t = tok.trim();
+    if (!t) continue;
+    const n = Number(t);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) continue;
+    if (n < lo || n > hi) continue;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}

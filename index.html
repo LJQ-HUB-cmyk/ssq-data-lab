@@ -390,13 +390,46 @@
                 <input id="cNo4SameZone" type="checkbox" />
                 <span>单区(1-11/12-22/23-33)不超过 4 个</span>
               </label>
+              <label class="check">
+                <input id="cAC" type="checkbox" />
+                <span>AC 值 ≥ 7（离散度更高）</span>
+              </label>
+              <label class="check">
+                <input id="cNoConsec" type="checkbox" />
+                <span>最多 1 组连号</span>
+              </label>
+              <label class="check">
+                <input id="cAvoidLast" type="checkbox" />
+                <span>避开上一期红球</span>
+              </label>
             </div>
             <div class="hint">
               约束只是“审美过滤”，不是预测规则。约束越多，可生成的组合越少。
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" style="grid-column:auto">
+            <div class="card-title">胆码 / 排除（可选）</div>
+            <div class="stack">
+              <label class="field">
+                <span>胆码（必含红，最多 6 个）</span>
+                <input id="includeRed" type="text" placeholder="例如：3, 11, 22" />
+              </label>
+              <label class="field">
+                <span>排除红球</span>
+                <input id="excludeRed" type="text" placeholder="例如：1, 13, 27" />
+              </label>
+              <label class="field">
+                <span>排除蓝球</span>
+                <input id="excludeBlue" type="text" placeholder="例如：1, 16" />
+              </label>
+            </div>
+            <div class="hint">
+              支持逗号、空格、顿号分隔。胆码与排除冲突时以胆码优先。
+            </div>
+          </div>
+
+          <div class="card" style="grid-column: 1 / -1">
             <div class="card-title">生成</div>
             <div class="row">
               <label class="field">
@@ -404,6 +437,7 @@
                 <input id="genN" type="number" min="1" max="20" value="5" />
               </label>
               <button id="btnGen" class="btn primary">生成推荐</button>
+              <span class="fine muted" id="genDiag"></span>
             </div>
             <div class="results" id="results"></div>
             <div class="hint">

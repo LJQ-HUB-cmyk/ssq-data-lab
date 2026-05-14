@@ -7,4 +7,5 @@ __pycache__/
 node_modules/
 .idea/
 .claude/
+.vscode/
 .DS_Store

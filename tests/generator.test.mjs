@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   makeWeightsFromFreq,
+  makeMixedWeights,
   weightedPickOne,
   weightedSampleWithoutReplacement,
   generateTickets,
@@ -109,5 +110,189 @@ test("generateTickets reports failures when constraints are unsatisfiable", () =
   assert.ok(tickets.length <= 3);
   if (tickets.length === 0) {
     assert.ok(Object.keys(failureReasons).length > 0);
+  }
+});
+
+test("makeMixedWeights suppresses extreme hot and cold", () => {
+  // hot 极端高 / cold 极端高 → 几何平均都被压低；中间值权重相对最高
+  const freq = makeFreq(RED_SIZE, 5);
+  freq[1] = 50;  // 极热
+  freq[2] = 0;   // 极冷
+  freq[10] = 5;  // 中庸
+  const w = makeMixedWeights(freq, 1);
+  // index 0 = 号码1（极热），index 1 = 号码2（极冷），index 9 = 号码10（中庸）
+  assert.ok(w[9] >= w[0], `mid (${w[9]}) should not be lower than hot (${w[0]})`);
+  assert.ok(w[9] >= w[1], `mid (${w[9]}) should not be lower than cold (${w[1]})`);
+});
+
+test("generateTickets honours includeRed (胆码) appearing in every ticket", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const rand = seededRand(11);
+  const { tickets } = generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: { sum: false, odd: false, span: false, zone: false },
+    count: 6,
+    includeRed: [3, 11, 22],
+    rand,
+  });
+  assert.equal(tickets.length, 6);
+  for (const t of tickets) {
+    assert.ok(t.reds.includes(3));
+    assert.ok(t.reds.includes(11));
+    assert.ok(t.reds.includes(22));
+    assert.equal(t.reds.length, 6);
+    assert.equal(new Set(t.reds).size, 6);
+  }
+});
+
+test("generateTickets respects excludeRed and excludeBlue", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const rand = seededRand(31);
+  const excludeRed = [1, 2, 3, 4, 5];
+  const excludeBlue = [1, 2, 3, 4, 5, 6, 7, 8];
+  const { tickets } = generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: { sum: false, odd: false, span: false, zone: false },
+    count: 8,
+    excludeRed,
+    excludeBlue,
+    rand,
+  });
+  assert.equal(tickets.length, 8);
+  for (const t of tickets) {
+    for (const n of excludeRed) assert.ok(!t.reds.includes(n));
+    assert.ok(!excludeBlue.includes(t.blue));
+  }
+});
+
+test("generateTickets avoidLast keeps tickets disjoint from previous reds", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const rand = seededRand(7);
+  const avoidLast = [4, 8, 15, 16, 23, 30];
+  const { tickets } = generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: { sum: false, odd: false, span: false, zone: false },
+    count: 5,
+    avoidLast,
+    rand,
+  });
+  assert.equal(tickets.length, 5);
+  for (const t of tickets) {
+    for (const n of avoidLast) assert.ok(!t.reds.includes(n));
+  }
+});
+
+test("includeRed wins over excludeRed when conflicting", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const rand = seededRand(99);
+  const { tickets } = generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: { sum: false, odd: false, span: false, zone: false },
+    count: 3,
+    includeRed: [7, 14],
+    excludeRed: [7], // 与胆码冲突，应该被胆码覆盖
+    rand,
+  });
+  for (const t of tickets) {
+    assert.ok(t.reds.includes(7), `ticket ${t.reds} should still include 7`);
+    assert.ok(t.reds.includes(14));
+  }
+});
+
+test("generateTickets throws when too many include reds", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  assert.throws(() => generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: {},
+    count: 1,
+    includeRed: [1, 2, 3, 4, 5, 6, 7],
+  }), /胆码/);
+});
+
+test("generateTickets throws when pool is too small after excludes", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const excludeRed = Array.from({ length: 30 }, (_, i) => i + 1); // exclude 1..30 → only 31,32,33 left
+  assert.throws(() => generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: {},
+    count: 1,
+    excludeRed,
+  }), /排除过多/);
+});
+
+test("generateTickets throws when all blues are excluded", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const excludeBlue = Array.from({ length: BLUE_SIZE }, (_, i) => i + 1);
+  assert.throws(() => generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: {},
+    count: 1,
+    excludeBlue,
+  }), /蓝球/);
+});
+
+test("AC and noConsec constraints are enforced when set", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const rand = seededRand(2026);
+  const { tickets } = generateTickets({
+    freqR, freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: { ac: true, noConsec: true },
+    count: 6,
+    maxTry: 3000,
+    rand,
+  });
+  // 至少应该有几注满足
+  assert.ok(tickets.length > 0);
+  for (const t of tickets) {
+    // AC ≥ 7
+    const diffs = new Set();
+    for (let i = 0; i < t.reds.length; i++) {
+      for (let j = i + 1; j < t.reds.length; j++) {
+        diffs.add(Math.abs(t.reds[i] - t.reds[j]));
+      }
+    }
+    assert.ok(diffs.size - (t.reds.length - 1) >= 7);
+    // 连号组 ≤ 1
+    let groups = 0, inRun = false;
+    const sorted = [...t.reds].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] - sorted[i - 1] === 1) {
+        if (!inRun) groups++;
+        inRun = true;
+      } else inRun = false;
+    }
+    assert.ok(groups <= 1);
   }
 });
