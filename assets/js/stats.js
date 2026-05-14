@@ -59,6 +59,31 @@ export const spanOf = (reds) => Math.max(...reds) - Math.min(...reds);
 export const sumOf = (reds) => reds.reduce((a, b) => a + b, 0);
 export const oddCountOf = (reds) => reds.filter((x) => x % 2 === 1).length;
 
+export function acValueOf(reds) {
+  const diffs = new Set();
+  for (let i = 0; i < reds.length; i++) {
+    for (let j = i + 1; j < reds.length; j++) {
+      diffs.add(Math.abs(reds[i] - reds[j]));
+    }
+  }
+  return diffs.size - (reds.length - 1);
+}
+
+export function consecutiveGroupsOf(reds) {
+  const sorted = [...reds].sort((a, b) => a - b);
+  let groups = 0;
+  let inRun = false;
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] - sorted[i - 1] === 1) {
+      if (!inRun) groups++;
+      inRun = true;
+    } else {
+      inRun = false;
+    }
+  }
+  return groups;
+}
+
 export function passesConstraints(reds, c) {
   if (c.sum && (sumOf(reds) < 70 || sumOf(reds) > 150)) return false;
   if (c.odd) {
@@ -67,6 +92,8 @@ export function passesConstraints(reds, c) {
   }
   if (c.span && spanOf(reds) < 18) return false;
   if (c.zone && Math.max(...zoneCounts(reds)) > 4) return false;
+  if (c.ac && acValueOf(reds) < 7) return false;
+  if (c.noConsec && consecutiveGroupsOf(reds) > 1) return false;
   return true;
 }
 
@@ -82,5 +109,7 @@ export function analyseConstraintFailures(reds, c) {
   }
   if (c.span && spanOf(reds) < 18) reasons.push(`跨度 ${spanOf(reds)} < 18`);
   if (c.zone && Math.max(...zoneCounts(reds)) > 4) reasons.push("单区超 4 个");
+  if (c.ac && acValueOf(reds) < 7) reasons.push(`AC 值 ${acValueOf(reds)} < 7`);
+  if (c.noConsec && consecutiveGroupsOf(reds) > 1) reasons.push(`连号组 ${consecutiveGroupsOf(reds)} > 1`);
   return reasons;
 }
