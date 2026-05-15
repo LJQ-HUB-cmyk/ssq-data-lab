@@ -288,6 +288,21 @@
             <div class="hint">复式：选 &gt;6 个红球，所有 6 组合都投。</div>
           </div>
           <div class="card">
+            <div class="card-title">号码体检</div>
+            <div class="stack">
+              <label class="field">
+                <span>红球</span>
+                <input id="manualReds" type="text" placeholder="例如：03 11 18 22 27 31" />
+              </label>
+              <label class="field">
+                <span>蓝球</span>
+                <input id="manualBlue" type="text" placeholder="例如：08" />
+              </label>
+              <button id="btnAnalyseTicket" class="btn primary">分析号码</button>
+            </div>
+            <div class="analysis-box" id="ticketAnalysis">输入一注号码，查看分布指标、历史重号与最新期重复情况。</div>
+          </div>
+          <div class="card">
             <div class="card-title">常用参考</div>
             <table class="table mini">
               <thead><tr><th>红球数</th><th>注数</th><th>金额</th></tr></thead>
@@ -437,6 +452,7 @@
                 <input id="genN" type="number" min="1" max="20" value="5" />
               </label>
               <button id="btnGen" class="btn primary">生成推荐</button>
+              <button id="btnCopyAll" class="btn ghost" disabled>复制全部</button>
               <span class="fine muted" id="genDiag"></span>
             </div>
             <div class="results" id="results"></div>
@@ -453,11 +469,21 @@
           <div class="card-title">开奖数据（最近 50 期）</div>
           <div class="row">
             <label class="field grow">
-              <span>按期号搜索</span>
-              <input id="qIssue" placeholder="例如：2026046" />
+              <span>搜索</span>
+              <input id="qIssue" placeholder="期号 / 日期 / 红球 / 蓝 08" />
+            </label>
+            <label class="field">
+              <span>展示</span>
+              <select id="dataLimit">
+                <option value="50" selected>最近 50 期</option>
+                <option value="100">最近 100 期</option>
+                <option value="200">最近 200 期</option>
+                <option value="all">全部</option>
+              </select>
             </label>
             <button id="btnSearch" class="btn">搜索</button>
             <button id="btnClear" class="btn ghost">清除</button>
+            <button id="btnExportCsv" class="btn ghost">导出 CSV</button>
           </div>
           <div class="table-wrap">
             <table class="table" id="table">

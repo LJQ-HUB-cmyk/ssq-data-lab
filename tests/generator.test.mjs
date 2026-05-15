@@ -8,6 +8,7 @@ import {
   weightedSampleWithoutReplacement,
   generateTickets,
 } from "../assets/js/generator.js";
+import { formatTicketLine } from "../assets/js/ui.js";
 
 const RED_SIZE = 33;
 const BLUE_SIZE = 16;
@@ -24,6 +25,10 @@ function makeFreq(size, fill = 1) {
   const f = Array(size + 1).fill(fill);
   return f;
 }
+
+test("formatTicketLine formats generated tickets for copy-all", () => {
+  assert.equal(formatTicketLine({ reds: [3, 11, 18, 22, 27, 31], blue: 8 }), "03 11 18 22 27 31 + 08");
+});
 
 test("makeWeightsFromFreq hot favours higher-freq numbers", () => {
   const freq = makeFreq(RED_SIZE, 0);

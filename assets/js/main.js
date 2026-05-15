@@ -1,4 +1,4 @@
-import { $, $$, clamp, pad2 } from "./utils.js";
+import { $, $$, clamp, pad2, parseNumList } from "./utils.js";
 import { loadDraws } from "./data.js";
 import {
   freqFromDraws,
@@ -19,6 +19,8 @@ import {
   path012Ratio,
   zoneRatio,
   acValue,
+  consecutiveGroups,
+  maxSameTail,
   groupBy,
   histogram,
 } from "./distribution.js";
@@ -33,6 +35,9 @@ import {
   renderTable,
   renderInsightChips,
   renderTickets,
+  formatTicketLine,
+  copyToClipboard,
+  renderTicketAnalysis,
   showLoadError,
   showDataSourceBanner,
   setRefreshLoading,
@@ -52,6 +57,8 @@ const state = {
   freqRecentBlue: null,
   missRed: null,
   missBlue: null,
+  tableRows: [],
+  lastTickets: [],
 };
 
 function computeStats() {
@@ -78,7 +85,7 @@ function renderOverviewAndInsight() {
   renderBars($("#chartBlueMiss"), state.missBlue, BLUE_MAX, "miss", { unit: "期" });
   renderInsightChips(state);
 
-  renderTable(state.draws.slice(-50).reverse(), `共 ${state.draws.length} 期；显示最近 50 期（倒序）。`);
+  renderDataTable();
 }
 
 function renderTrendPanel() {
@@ -180,6 +187,92 @@ function verdictChip(p) {
   return `<span class="chip chip-ok">不拒绝（数据与均匀一致）</span>`;
 }
 
+function readDataLimit() {
+  const value = $("#dataLimit")?.value || "50";
+  return value === "all" ? Infinity : Number(value);
+}
+
+function limitDataRows(rows) {
+  const limit = readDataLimit();
+  const ordered = rows.slice().reverse();
+  return Number.isFinite(limit) ? ordered.slice(0, limit) : ordered;
+}
+
+function filterDataRows(query) {
+  const q = query.trim();
+  if (!q) return state.draws;
+  const qLower = q.toLowerCase();
+  const blueMatch = q.match(/(?:蓝|blue|b)\s*0?(\d{1,2})/i);
+  const blue = blueMatch ? Number(blueMatch[1]) : null;
+  const redNums = blueMatch ? [] : parseNumList(q, 1, 33);
+
+  return state.draws.filter((d) => {
+    const textHit = String(d.issue).includes(q) || String(d.date || "").toLowerCase().includes(qLower);
+    const redHit = redNums.length > 0 && redNums.every((n) => d.reds.includes(n));
+    const blueHit = blue != null && d.blue === blue;
+    return textHit || redHit || blueHit;
+  });
+}
+
+function renderDataTable() {
+  const q = ($("#qIssue")?.value || "").trim();
+  const rows = limitDataRows(filterDataRows(q));
+  state.tableRows = rows;
+  const scope = readDataLimit() === Infinity ? "全部" : `最近 ${readDataLimit()} 期`;
+  const prefix = q ? `搜索 "${q}"` : scope;
+  renderTable(rows, `${prefix}：显示 ${rows.length} 条；总数据 ${state.draws.length} 期（倒序）。`);
+}
+
+function exportCurrentCsv() {
+  const rows = state.tableRows;
+  const lines = [["issue", "date", "reds", "blue"].join(",")];
+  for (const d of rows) {
+    lines.push([d.issue, d.date || "", d.reds.map(pad2).join(" "), pad2(d.blue)].map((v) => `"${String(v).replaceAll('"', '""')}"`).join(","));
+  }
+  const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ssq-data-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function analyseManualTicket() {
+  const reds = parseNumList($("#manualReds")?.value, 1, 33).sort((a, b) => a - b);
+  const blueList = parseNumList($("#manualBlue")?.value, 1, 16);
+  if (reds.length !== 6) {
+    renderTicketAnalysis({ error: `红球需要 6 个不重复号码（当前 ${reds.length} 个）` });
+    return;
+  }
+  if (blueList.length !== 1) {
+    renderTicketAnalysis({ error: `蓝球需要 1 个号码（当前 ${blueList.length} 个）` });
+    return;
+  }
+
+  const blue = blueList[0];
+  const latest = state.draws[state.draws.length - 1];
+  const key = reds.join(",");
+  const historyHits = state.draws.filter((d) => d.blue === blue && d.reds.join(",") === key);
+  renderTicketAnalysis({
+    reds,
+    blue,
+    sum: sumOf(reds),
+    span: spanOf(reds),
+    oddEven: oddEvenRatio(reds),
+    bigSmall: bigSmallRatio(reds),
+    primeComposite: primeCompositeRatio(reds),
+    path012: path012Ratio(reds),
+    zone: zoneRatio(reds),
+    ac: acValue(reds),
+    consecutiveGroups: consecutiveGroups(reds),
+    maxSameTail: maxSameTail(reds),
+    repeatReds: latest ? reds.filter((n) => latest.reds.includes(n)) : [],
+    repeatBlue: latest ? latest.blue === blue : false,
+    historyHits,
+  });
+}
+
 function renderTools() {
   $("#btnCalcDanTuo").addEventListener("click", () => {
     try {
@@ -206,6 +299,13 @@ function renderTools() {
     } catch (e) {
       $("#complexResult").innerHTML = `<span class="chip chip-warn">${e.message}</span>`;
     }
+  });
+  $("#btnAnalyseTicket").addEventListener("click", analyseManualTicket);
+  $("#manualReds").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") analyseManualTicket();
+  });
+  $("#manualBlue").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") analyseManualTicket();
   });
 
   const ref = $("#refTable");
@@ -238,25 +338,38 @@ function onGenerate() {
       excludeBlue: cfg.excludeBlue,
       avoidLast,
     });
+    state.lastTickets = result.tickets;
     renderTickets(result.tickets, { tries: result.tries, failureReasons: result.failureReasons });
+    $("#btnCopyAll").disabled = result.tickets.length === 0;
+    const parsed = [
+      cfg.includeRed.length ? `胆码 ${cfg.includeRed.length}` : "",
+      cfg.excludeRed.length ? `排除红 ${cfg.excludeRed.length}` : "",
+      cfg.excludeBlue.length ? `排除蓝 ${cfg.excludeBlue.length}` : "",
+    ].filter(Boolean).join(" · ");
     setGenDiagnostics(
-      `已生成 ${result.tickets.length}/${cfg.count} 注 · 尝试 ${result.tries} 次` +
+      `已生成 ${result.tickets.length}/${cfg.count} 注 · ${priceOf(result.tickets.length)} 元 · 尝试 ${result.tries} 次` +
+      (parsed ? ` · ${parsed}` : "") +
       (avoidLast.length ? ` · 已避开上一期 ${avoidLast.length} 个红球` : "")
     );
   } catch (e) {
+    state.lastTickets = [];
+    $("#btnCopyAll").disabled = true;
     showGenError(e.message || String(e));
     setGenDiagnostics("");
   }
 }
 
+async function onCopyAll() {
+  if (!state.lastTickets.length) return;
+  await copyToClipboard(state.lastTickets.map(formatTicketLine).join("\n"));
+  const btn = $("#btnCopyAll");
+  const original = btn.textContent;
+  btn.textContent = "已复制";
+  setTimeout(() => (btn.textContent = original), 1200);
+}
+
 function onSearch() {
-  const q = ($("#qIssue").value || "").trim();
-  if (!q) {
-    renderTable(state.draws.slice(-50).reverse(), `共 ${state.draws.length} 期；显示最近 50 期（倒序）。`);
-    return;
-  }
-  const hit = state.draws.filter((d) => d.issue.includes(q)).slice(-120).reverse();
-  renderTable(hit, `搜索 "${q}" ：命中 ${hit.length} 条（最多展示 120 条）。`);
+  renderDataTable();
 }
 
 async function onRefresh() {
@@ -290,14 +403,17 @@ function bindInteractions() {
   });
   $("#trendWindow").addEventListener("change", renderTrendPanel);
   $("#btnGen").addEventListener("click", onGenerate);
+  $("#btnCopyAll").addEventListener("click", onCopyAll);
   $("#btnSearch").addEventListener("click", onSearch);
   $("#qIssue").addEventListener("keydown", (e) => {
     if (e.key === "Enter") onSearch();
   });
+  $("#dataLimit").addEventListener("change", renderDataTable);
   $("#btnClear").addEventListener("click", () => {
     $("#qIssue").value = "";
-    renderTable(state.draws.slice(-50).reverse(), `共 ${state.draws.length} 期；显示最近 50 期（倒序）。`);
+    renderDataTable();
   });
+  $("#btnExportCsv").addEventListener("click", exportCurrentCsv);
   $("#btnRefresh").addEventListener("click", onRefresh);
   window.addEventListener("resize", debounceResize);
   renderTools();

@@ -57,6 +57,11 @@ export function renderRank(el, pairs) {
 export function renderTable(rows, note) {
   const tbody = $("#tbody");
   tbody.innerHTML = "";
+  if (rows.length === 0) {
+    tbody.appendChild(createEl("tr", {
+      html: `<td colspan="4" class="muted">没有匹配的数据。</td>`,
+    }));
+  }
   for (const d of rows) {
     const reds = d.reds.map((x) => `<span class="mono" style="color:rgba(255,255,255,.9)">${pad2(x)}</span>`).join(" ");
     const tr = createEl("tr", {
@@ -95,7 +100,7 @@ export function ticketLabel(reds) {
   return `和值 ${sumOf(reds)} · 奇数 ${oddCountOf(reds)} · 跨度 ${spanOf(reds)} · 三区 ${z}`;
 }
 
-function copyToClipboard(text) {
+export function copyToClipboard(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     return navigator.clipboard.writeText(text);
   }
@@ -110,6 +115,10 @@ function copyToClipboard(text) {
     document.body.removeChild(ta);
     resolve();
   });
+}
+
+export function formatTicketLine(ticket) {
+  return `${ticket.reds.map(pad2).join(" ")} + ${pad2(ticket.blue)}`;
 }
 
 export function renderTickets(tickets, diagnostics) {
@@ -135,8 +144,7 @@ export function renderTickets(tickets, diagnostics) {
 
     const copyBtn = createEl("button", { cls: "btn ghost btn-copy", text: "复制", attrs: { type: "button" } });
     copyBtn.addEventListener("click", async () => {
-      const line = `${t.reds.map(pad2).join(" ")} + ${pad2(t.blue)}`;
-      await copyToClipboard(line);
+      await copyToClipboard(formatTicketLine(t));
       const original = copyBtn.textContent;
       copyBtn.textContent = "已复制";
       setTimeout(() => (copyBtn.textContent = original), 1200);
@@ -225,4 +233,42 @@ export function setGenDiagnostics(text) {
   const el = $("#genDiag");
   if (!el) return;
   el.textContent = text || "";
+}
+
+export function renderTicketAnalysis(result) {
+  const el = $("#ticketAnalysis");
+  if (!el) return;
+  if (result.error) {
+    el.innerHTML = `<span class="chip chip-warn">${result.error}</span>`;
+    return;
+  }
+
+  const metrics = [
+    ["和值", result.sum],
+    ["跨度", result.span],
+    ["奇偶", result.oddEven],
+    ["大小", result.bigSmall],
+    ["质合", result.primeComposite],
+    ["012 路", result.path012],
+    ["三区", result.zone],
+    ["AC", result.ac],
+    ["连号组", result.consecutiveGroups],
+    ["最大同尾", result.maxSameTail],
+  ];
+  const hitText = result.historyHits.length
+    ? result.historyHits.map((d) => `${d.issue}${d.date ? ` · ${d.date}` : ""}`).join(" / ")
+    : "历史未完全出现过";
+
+  el.innerHTML = `
+    <div class="analysis-grid">
+      ${metrics.map(([k, v]) => `<div class="metric-line"><span>${k}</span><strong class="mono">${v}</strong></div>`).join("")}
+    </div>
+    <div class="callout">
+      <div class="callout-title">历史对照</div>
+      <div class="callout-body">
+        与最新期红球重复 <strong class="mono">${result.repeatReds.length}</strong> 个${result.repeatReds.length ? `（${result.repeatReds.map(pad2).join(" ")}）` : ""}；蓝球${result.repeatBlue ? "重复" : "未重复"}。<br/>
+        ${hitText}。历史未出现不代表更可能出现。
+      </div>
+    </div>
+  `;
 }

@@ -5,6 +5,7 @@ import { parseNumList, clamp, pad2 } from "../assets/js/utils.js";
 
 test("parseNumList handles common separators", () => {
   assert.deepEqual(parseNumList("1, 2 3、4；5;6"), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(parseNumList("03 11 18 22 27 31", 1, 33), [3, 11, 18, 22, 27, 31]);
 });
 
 test("parseNumList trims, dedupes and skips invalid tokens", () => {

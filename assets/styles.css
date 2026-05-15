@@ -132,6 +132,8 @@ body{
   color:#071005;
 }
 .btn.ghost{background:transparent}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+.btn:disabled:hover{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.12)}
 
 .shell{
   max-width:1180px;
@@ -443,6 +445,9 @@ body{
 }
 @media (max-width: 720px){
   .panel-grid-3{grid-template-columns: 1fr}
+  .analysis-grid{grid-template-columns:1fr}
+  .ticket{align-items:flex-start; flex-direction:column}
+  .ticket-right{align-items:flex-start; flex-direction:column}
 }
 .panel-grid-3 .card:nth-child(3){grid-column:auto}
 .chart-gold .chart-bar,
@@ -488,6 +493,22 @@ body{
 }
 .big-num{font-size:22px; color:var(--acid)}
 .table.mini th, .table.mini td{padding:6px 10px; font-size:12px}
+
+.analysis-box{
+  margin-top:12px;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.16);
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.6;
+}
+.analysis-grid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap:8px;
+}
 
 /* ------- 科学态度面板 ------- */
 .metric-block{display:flex; flex-direction:column; gap:8px; margin-top:4px}
