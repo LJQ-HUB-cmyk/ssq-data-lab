@@ -6,6 +6,8 @@ import {
   makeMixedWeights,
   weightedPickOne,
   weightedSampleWithoutReplacement,
+  crowdPenalty,
+  coveragePenalty,
   generateTickets,
 } from "../assets/js/generator.js";
 import { formatTicketLine } from "../assets/js/ui.js";
@@ -26,8 +28,63 @@ function makeFreq(size, fill = 1) {
   return f;
 }
 
+function averageRedOverlap(tickets) {
+  let total = 0;
+  let pairs = 0;
+  for (let i = 0; i < tickets.length; i++) {
+    for (let j = i + 1; j < tickets.length; j++) {
+      total += tickets[i].reds.filter((n) => tickets[j].reds.includes(n)).length;
+      pairs++;
+    }
+  }
+  return pairs ? total / pairs : 0;
+}
+
 test("formatTicketLine formats generated tickets for copy-all", () => {
   assert.equal(formatTicketLine({ reds: [3, 11, 18, 22, 27, 31], blue: 8 }), "03 11 18 22 27 31 + 08");
+});
+
+test("crowdPenalty penalizes popular-looking tickets", () => {
+  const popular = crowdPenalty([1, 2, 3, 4, 5, 6], 8);
+  const spread = crowdPenalty([4, 13, 22, 27, 32, 33], 11);
+  assert.ok(popular > spread, `${popular} should be greater than ${spread}`);
+});
+
+test("coveragePenalty penalizes overlap with existing tickets", () => {
+  const existing = [{ reds: [1, 2, 3, 4, 5, 6], blue: 8 }];
+  const highOverlap = coveragePenalty({ reds: [1, 2, 3, 7, 8, 9], blue: 8 }, existing);
+  const lowOverlap = coveragePenalty({ reds: [10, 11, 12, 13, 14, 15], blue: 9 }, existing);
+  assert.ok(highOverlap > lowOverlap, `${highOverlap} should be greater than ${lowOverlap}`);
+});
+
+test("generateTickets diverse mode reduces red overlap under fixed random seed", () => {
+  const freqR = makeFreq(RED_SIZE, 1);
+  const freqB = makeFreq(BLUE_SIZE, 1);
+  const base = generateTickets({
+    freqR,
+    freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: { sum: false, odd: false, span: false, zone: false },
+    count: 10,
+    rand: seededRand(20260515),
+  }).tickets;
+  const diverse = generateTickets({
+    freqR,
+    freqB,
+    strategyRed: "uniform",
+    strategyBlue: "uniform",
+    alpha: 1,
+    constraints: { sum: false, odd: false, span: false, zone: false },
+    count: 10,
+    optimize: "diverse",
+    candidateBatch: 30,
+    rand: seededRand(20260515),
+  }).tickets;
+  assert.equal(diverse.length, 10);
+  assert.ok(averageRedOverlap(diverse) <= 1.8);
+  assert.ok(diverse.every((ticket) => crowdPenalty(ticket.reds, ticket.blue) <= 4));
 });
 
 test("makeWeightsFromFreq hot favours higher-freq numbers", () => {

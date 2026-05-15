@@ -379,10 +379,18 @@
               </label>
 
               <label class="field">
+                <span>优化模式</span>
+                <select id="optimizeMode">
+                  <option value="none" selected>关闭：按当前策略随机</option>
+                  <option value="diverse">低撞号 + 分散覆盖</option>
+                </select>
+              </label>
+
+              <label class="field">
                 <span>权重强度</span>
                 <input id="alpha" type="range" min="0" max="200" value="90" />
               </label>
-              <div class="fine muted">从“近似均匀” → “强烈偏好”。</div>
+              <div class="fine muted">低撞号模式不提高单注命中率，只优化撞号风险与多注覆盖分散度。</div>
             </div>
           </div>
 

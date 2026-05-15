@@ -1,4 +1,10 @@
-import { passesConstraints, analyseConstraintFailures } from "./stats.js";
+import {
+  passesConstraints,
+  analyseConstraintFailures,
+  spanOf,
+  oddCountOf,
+  consecutiveGroupsOf,
+} from "./stats.js";
 
 export function makeWeightsFromFreq(freq, strategy, alpha) {
   const size = freq.length - 1;
@@ -67,6 +73,67 @@ function subsetWeights(sourceWeights, pool) {
   return pool.map((n) => sourceWeights[n - 1]);
 }
 
+function maxSameTailOf(reds) {
+  const tails = Array(10).fill(0);
+  for (const r of reds) tails[r % 10]++;
+  return Math.max(...tails);
+}
+
+function hasArithmeticPattern(reds) {
+  const set = new Set(reds);
+  for (let i = 0; i < reds.length; i++) {
+    for (let j = i + 1; j < reds.length; j++) {
+      const step = reds[j] - reds[i];
+      if (step <= 0) continue;
+      let run = 2;
+      let next = reds[j] + step;
+      while (set.has(next)) {
+        run++;
+        next += step;
+      }
+      if (run >= 4) return true;
+    }
+  }
+  return false;
+}
+
+export function crowdPenalty(reds, blue) {
+  let penalty = 0;
+  const birthdayReds = reds.filter((n) => n <= 31).length;
+  const smallDateReds = reds.filter((n) => n <= 12).length;
+  const odd = oddCountOf(reds);
+  const big = reds.filter((n) => n > 16).length;
+  const tailMax = maxSameTailOf(reds);
+  const consecutiveGroups = consecutiveGroupsOf(reds);
+
+  if (birthdayReds === 6) penalty += 2;
+  if (smallDateReds >= 4) penalty += smallDateReds - 2;
+  if (tailMax >= 3) penalty += (tailMax - 2) * 2;
+  if (consecutiveGroups >= 2) penalty += consecutiveGroups * 2;
+  if (spanOf(reds) < 18) penalty += 2;
+  if (odd === 0 || odd === 6) penalty += 3;
+  if (big === 0 || big === 6) penalty += 3;
+  if (hasArithmeticPattern(reds)) penalty += 3;
+  if ([6, 8, 9, 16].includes(blue)) penalty += 1;
+
+  return penalty;
+}
+
+export function coveragePenalty(ticket, existingTickets) {
+  let penalty = 0;
+  for (const existing of existingTickets) {
+    const overlap = ticket.reds.filter((n) => existing.reds.includes(n)).length;
+    if (overlap >= 3) penalty += (overlap - 2) * 3;
+    if (ticket.blue === existing.blue) penalty += 1;
+  }
+  return penalty;
+}
+
+export function scoreTicket(ticket, existingTickets = [], optimize = "none") {
+  if (optimize !== "diverse") return 0;
+  return -(crowdPenalty(ticket.reds, ticket.blue) + coveragePenalty(ticket, existingTickets));
+}
+
 export function generateTickets({
   freqR,
   freqB,
@@ -79,6 +146,8 @@ export function generateTickets({
   excludeRed = [],
   avoidLast = [],
   excludeBlue = [],
+  optimize = "none",
+  candidateBatch = 40,
   maxTry = 2000,
   rand = Math.random,
 }) {
@@ -105,7 +174,7 @@ export function generateTickets({
   const wBSource = makeWeightsFromFreq(freqB, strategyBlue, alpha);
   const wB = blueItems.map((n) => wBSource[n - 1]);
 
-  while (tickets.length < count && tries < maxTry) {
+  const makeCandidate = () => {
     tries++;
     const picked = needToPick === 0
       ? []
@@ -117,11 +186,32 @@ export function generateTickets({
       for (const reason of analyseConstraintFailures(reds, constraints)) {
         failureReasons[reason] = (failureReasons[reason] || 0) + 1;
       }
-      continue;
+      return null;
     }
     const key = `${reds.join(",")}|${blue}`;
-    if (tickets.some((t) => t.key === key)) continue;
-    tickets.push({ key, reds, blue });
+    if (tickets.some((t) => t.key === key)) return null;
+    return { key, reds, blue };
+  };
+
+  while (tickets.length < count && tries < maxTry) {
+    if (optimize !== "diverse") {
+      const candidate = makeCandidate();
+      if (candidate) tickets.push(candidate);
+      continue;
+    }
+
+    let best = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < candidateBatch && tries < maxTry; i++) {
+      const candidate = makeCandidate();
+      if (!candidate) continue;
+      const score = scoreTicket(candidate, tickets, optimize);
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+    if (best) tickets.push(best);
   }
 
   return { tickets, tries, failureReasons };

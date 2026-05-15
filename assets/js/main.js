@@ -333,6 +333,7 @@ function onGenerate() {
       alpha: cfg.alpha,
       constraints: cfg.constraints,
       count: cfg.count,
+      optimize: cfg.optimize,
       includeRed: cfg.includeRed,
       excludeRed: cfg.excludeRed,
       excludeBlue: cfg.excludeBlue,
@@ -345,6 +346,7 @@ function onGenerate() {
       cfg.includeRed.length ? `胆码 ${cfg.includeRed.length}` : "",
       cfg.excludeRed.length ? `排除红 ${cfg.excludeRed.length}` : "",
       cfg.excludeBlue.length ? `排除蓝 ${cfg.excludeBlue.length}` : "",
+      cfg.optimize === "diverse" ? "低撞号/分散覆盖已启用" : "",
     ].filter(Boolean).join(" · ");
     setGenDiagnostics(
       `已生成 ${result.tickets.length}/${cfg.count} 注 · ${priceOf(result.tickets.length)} 元 · 尝试 ${result.tries} 次` +

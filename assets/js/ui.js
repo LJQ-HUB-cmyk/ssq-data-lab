@@ -203,6 +203,7 @@ export function readGeneratorConfig() {
   return {
     strategyRed: $("#strategyRed").value,
     strategyBlue: $("#strategyBlue").value,
+    optimize: $("#optimizeMode")?.value || "none",
     alpha: clamp(Number($("#alpha").value || 0) / 100, 0, 2),
     count: clamp(Number($("#genN").value || 1), 1, 20),
     constraints: {
