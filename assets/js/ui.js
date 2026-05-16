@@ -1,10 +1,15 @@
 import { $, $$, pad2, makeBall, createEl, clamp, parseNumList } from "./utils.js";
 import { topN, bottomN, sumOf, oddCountOf, spanOf, zoneCounts } from "./stats.js";
 
+/* =========================================================
+   Tabs (with hash sync)
+   ========================================================= */
 export function setupTabs(onChange) {
   const tabs = $$(".tab");
   const panels = $$(".panel");
-  const activate = (name) => {
+
+  const activate = (name, opts = {}) => {
+    if (!tabs.some((t) => t.dataset.tab === name)) name = "overview";
     for (const t of tabs) {
       const active = t.dataset.tab === name;
       t.classList.toggle("is-active", active);
@@ -12,8 +17,12 @@ export function setupTabs(onChange) {
       t.tabIndex = active ? 0 : -1;
     }
     for (const p of panels) p.classList.toggle("is-active", p.dataset.panel === name);
+    if (!opts.silent) {
+      try { history.replaceState(null, "", `#${name}`); } catch (e) {}
+    }
     if (onChange) onChange(name);
   };
+
   tabs.forEach((t, idx) => {
     t.addEventListener("click", () => activate(t.dataset.tab));
     t.addEventListener("keydown", (e) => {
@@ -26,50 +35,106 @@ export function setupTabs(onChange) {
       }
     });
   });
+
+  // 初始 hash
+  const initial = (location.hash || "").replace("#", "").trim();
+  if (initial) activate(initial, { silent: true });
+
+  // 监听 hash 变化（浏览器前进/后退）
+  window.addEventListener("hashchange", () => {
+    const name = (location.hash || "").replace("#", "").trim();
+    if (name) activate(name, { silent: true });
+  });
+
   return activate;
 }
 
+/* =========================================================
+   Theme toggle
+   ========================================================= */
+export function setupTheme() {
+  const btn = $("#btnTheme");
+  if (!btn) return;
+  const sun = $("#iconSun");
+  const moon = $("#iconMoon");
+
+  const apply = (theme) => {
+    document.documentElement.setAttribute("data-theme", theme);
+    if (sun && moon) {
+      sun.style.display = theme === "light" ? "none" : "";
+      moon.style.display = theme === "light" ? "" : "none";
+    }
+    try { localStorage.setItem("ssq-theme", theme); } catch (e) {}
+  };
+
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  apply(current);
+
+  btn.addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme") || "dark";
+    const next = cur === "light" ? "dark" : "light";
+    apply(next);
+    document.dispatchEvent(new CustomEvent("ssq:theme", { detail: { theme: next } }));
+  });
+}
+
+/* =========================================================
+   Hero / Latest
+   ========================================================= */
 export function renderLatest(draw) {
   $("#latestIssue").textContent = draw.issue;
   $("#latestDate").textContent = draw.date || "（无）";
   const wrap = $("#latestBalls");
   wrap.innerHTML = "";
   for (const r of draw.reds) wrap.appendChild(makeBall(r, "red"));
-  wrap.appendChild(makeBall(draw.blue, "blue"));
+  const blueBall = makeBall(draw.blue, "blue");
+  blueBall.classList.add("plus");
+  wrap.appendChild(blueBall);
   $("#mLatest").textContent = draw.issue;
 }
 
 export function renderHeroMeta(meta, draws) {
-  $("#mCount").textContent = String(meta.count || draws.length);
+  const n = Number(meta.count || draws.length) || draws.length;
+  $("#mCount").textContent = n.toLocaleString();
   $("#mRange").textContent = `${draws[0].issue} – ${draws[draws.length - 1].issue}`;
 }
 
+/* =========================================================
+   Rank (Top / Bottom)
+   ========================================================= */
 export function renderRank(el, pairs) {
   el.innerHTML = "";
-  for (const [num, val] of pairs) {
+  pairs.forEach(([num, val], i) => {
     const li = createEl("li", {
-      html: `<span class="mono">${pad2(num)}</span> <span class="muted">×</span> <span class="mono">${val}</span>`,
+      html: `
+        <span class="mono" style="color:var(--muted-3); width:18px; text-align:right">${i + 1}.</span>
+        <span class="ball ${el.id?.includes("Blue") ? "blue" : "red"}" style="width:26px; height:26px; font-size:11px; box-shadow:none">${pad2(num)}</span>
+        <span class="muted" style="margin-left:auto; font-family:var(--mono); font-size:12px">×&nbsp;<strong style="color:var(--text)">${val}</strong></span>
+      `,
     });
     el.appendChild(li);
-  }
+  });
 }
 
+/* =========================================================
+   Data table
+   ========================================================= */
 export function renderTable(rows, note) {
   const tbody = $("#tbody");
   tbody.innerHTML = "";
   if (rows.length === 0) {
     tbody.appendChild(createEl("tr", {
-      html: `<td colspan="4" class="muted">没有匹配的数据。</td>`,
+      html: `<td colspan="4" class="muted" style="text-align:center; padding:24px">没有匹配的数据。</td>`,
     }));
   }
   for (const d of rows) {
-    const reds = d.reds.map((x) => `<span class="mono" style="color:rgba(255,255,255,.9)">${pad2(x)}</span>`).join(" ");
+    const reds = d.reds.map((x) => `<span class="red-num">${pad2(x)}</span>`).join("&nbsp;&nbsp;");
     const tr = createEl("tr", {
       html: `
         <td class="mono">${d.issue}</td>
-        <td class="mono">${d.date || ""}</td>
+        <td class="mono muted">${d.date || ""}</td>
         <td>${reds}</td>
-        <td><span class="mono" style="color:rgba(138,209,255,.95)">${pad2(d.blue)}</span></td>
+        <td><span class="blue-num">${pad2(d.blue)}</span></td>
       `,
     });
     tbody.appendChild(tr);
@@ -77,24 +142,27 @@ export function renderTable(rows, note) {
   $("#dataFootnote").textContent = note || "";
 }
 
+/* =========================================================
+   Insight chips
+   ========================================================= */
 export function renderInsightChips({ freqRecentRed, missRed, missBlue }) {
   const chips = $("#insightChips");
   chips.innerHTML = "";
-  const hotR = topN(freqRecentRed, 3, 33).map(([n, v]) => `${pad2(n)}×${v}`).join(" / ");
-  const coldR = bottomN(freqRecentRed, 3, 33).map(([n, v]) => `${pad2(n)}×${v}`).join(" / ");
-  const maxMissR = topN(missRed, 3, 33).map(([n, v]) => `${pad2(n)}·${v}`).join(" / ");
-  const maxMissB = topN(missBlue, 2, 16).map(([n, v]) => `${pad2(n)}·${v}`).join(" / ");
-  const list = [
-    { k: "近期红热", v: hotR },
-    { k: "近期红冷", v: coldR },
-    { k: "红高遗漏", v: maxMissR },
-    { k: "蓝高遗漏", v: maxMissB },
+  const items = [
+    { k: "近期红热", v: topN(freqRecentRed, 3, 33).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "warn" },
+    { k: "近期红冷", v: bottomN(freqRecentRed, 3, 33).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "" },
+    { k: "红高遗漏", v: topN(missRed, 3, 33).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "" },
+    { k: "蓝高遗漏", v: topN(missBlue, 2, 16).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "" },
   ];
-  for (const it of list) {
-    chips.appendChild(createEl("div", { cls: "chip", html: `${it.k} <strong>${it.v}</strong>` }));
+  for (const it of items) {
+    const cls = it.kind ? `chip chip-${it.kind}` : "chip";
+    chips.appendChild(createEl("div", { cls, html: `${it.k} <strong>${it.v}</strong>` }));
   }
 }
 
+/* =========================================================
+   Ticket helpers
+   ========================================================= */
 export function ticketLabel(reds) {
   const z = zoneCounts(reds).join(":");
   return `和值 ${sumOf(reds)} · 奇数 ${oddCountOf(reds)} · 跨度 ${spanOf(reds)} · 三区 ${z}`;
@@ -111,7 +179,7 @@ export function copyToClipboard(text) {
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand("copy"); } catch {}
+    try { document.execCommand("copy"); } catch (e) {}
     document.body.removeChild(ta);
     resolve();
   });
@@ -137,17 +205,30 @@ export function renderTickets(tickets, diagnostics) {
     return;
   }
   tickets.forEach((t, idx) => {
-    const meta = createEl("div", { cls: "meta", text: `#${idx + 1} · ${ticketLabel(t.reds)}` });
+    const meta = createEl("div", {
+      cls: "meta",
+      html: `<strong style="color:var(--text); font-weight:600">#${pad2(idx + 1)}</strong> · ${ticketLabel(t.reds)}`,
+    });
     const nums = createEl("div", { cls: "nums" });
     for (const r of t.reds) nums.appendChild(makeBall(r, "red"));
-    nums.appendChild(makeBall(t.blue, "blue"));
+    const blueBall = makeBall(t.blue, "blue");
+    blueBall.classList.add("plus");
+    nums.appendChild(blueBall);
 
-    const copyBtn = createEl("button", { cls: "btn ghost btn-copy", text: "复制", attrs: { type: "button" } });
+    const copyBtn = createEl("button", {
+      cls: "btn ghost btn-copy",
+      text: "复制",
+      attrs: { type: "button", "aria-label": `复制第 ${idx + 1} 注` },
+    });
     copyBtn.addEventListener("click", async () => {
       await copyToClipboard(formatTicketLine(t));
       const original = copyBtn.textContent;
       copyBtn.textContent = "已复制";
-      setTimeout(() => (copyBtn.textContent = original), 1200);
+      copyBtn.disabled = true;
+      setTimeout(() => {
+        copyBtn.textContent = original;
+        copyBtn.disabled = false;
+      }, 1200);
     });
 
     const right = createEl("div", { cls: "ticket-right" }, [nums, copyBtn]);
@@ -156,6 +237,9 @@ export function renderTickets(tickets, diagnostics) {
   });
 }
 
+/* =========================================================
+   Banners
+   ========================================================= */
 export function showLoadError(message) {
   const shell = $(".shell");
   const card = createEl("div", {
@@ -163,7 +247,7 @@ export function showLoadError(message) {
     html: `
       <div class="card-title">加载失败</div>
       <div class="fine">无法加载数据。建议用本地 HTTP 方式打开，例如：</div>
-      <pre class="mono fine" style="margin:8px 0 0;white-space:pre-wrap">python -m http.server 8000</pre>
+      <pre class="mono fine" style="margin:10px 0 0; padding:10px 12px; background:var(--surface); border-radius:10px; border:1px solid var(--stroke); white-space:pre-wrap">python -m http.server 8000</pre>
       <div class="fine muted" style="margin-top:8px">${message}</div>
     `,
   });
@@ -173,28 +257,33 @@ export function showLoadError(message) {
 export function showDataSourceBanner(source, fetchError) {
   if (source !== "embedded") return;
   const shell = $(".shell");
-  const existing = shell.querySelector(".banner-embedded");
-  if (existing) return;
+  if (shell.querySelector(".banner-embedded")) return;
   const banner = createEl("div", {
     cls: "card banner-embedded",
     html: `
       <div class="card-title">提示：正在使用内置数据</div>
       <div class="fine">当前通过 <span class="mono">window.__SSQ_DATA__</span> 兜底加载。<br/>
         原因：<span class="mono">${(fetchError && fetchError.message) || "无法 fetch draws.json"}</span>。
-        建议用 <span class="mono">python -m http.server 8000</span> 打开以获得实时数据。</div>
+        建议用 <span class="mono">python -m http.server 8000</span> 打开以获得最新数据。</div>
     `,
   });
   shell.prepend(banner);
 }
 
+/* =========================================================
+   Refresh button (icon-btn)
+   ========================================================= */
 export function setRefreshLoading(loading) {
   const btn = $("#btnRefresh");
   if (!btn) return;
   btn.disabled = loading;
   btn.classList.toggle("is-loading", loading);
-  btn.textContent = loading ? "加载中…" : "刷新";
+  btn.setAttribute("aria-label", loading ? "加载中" : "重新加载数据");
 }
 
+/* =========================================================
+   Generator config readers
+   ========================================================= */
 export function readWinSize() {
   return clamp(Number($("#winSize").value || 200), 20, 1000);
 }
@@ -236,6 +325,9 @@ export function setGenDiagnostics(text) {
   el.textContent = text || "";
 }
 
+/* =========================================================
+   Manual ticket analysis
+   ========================================================= */
 export function renderTicketAnalysis(result) {
   const el = $("#ticketAnalysis");
   if (!el) return;
@@ -252,24 +344,42 @@ export function renderTicketAnalysis(result) {
     ["质合", result.primeComposite],
     ["012 路", result.path012],
     ["三区", result.zone],
-    ["AC", result.ac],
+    ["AC 值", result.ac],
     ["连号组", result.consecutiveGroups],
     ["最大同尾", result.maxSameTail],
   ];
   const hitText = result.historyHits.length
     ? result.historyHits.map((d) => `${d.issue}${d.date ? ` · ${d.date}` : ""}`).join(" / ")
-    : "历史未完全出现过";
+    : "历史上从未完整出现过";
 
   el.innerHTML = `
+    <div class="balls" style="margin-bottom:12px">
+      ${result.reds.map((r) => `<span class="ball red" style="width:32px;height:32px;font-size:12px">${pad2(r)}</span>`).join("")}
+      <span class="ball blue plus" style="width:32px;height:32px;font-size:12px">${pad2(result.blue)}</span>
+    </div>
     <div class="analysis-grid">
-      ${metrics.map(([k, v]) => `<div class="metric-line"><span>${k}</span><strong class="mono">${v}</strong></div>`).join("")}
+      ${metrics.map(([k, v]) => `<div class="metric-line"><span>${k}</span><strong>${v}</strong></div>`).join("")}
     </div>
     <div class="callout">
       <div class="callout-title">历史对照</div>
       <div class="callout-body">
-        与最新期红球重复 <strong class="mono">${result.repeatReds.length}</strong> 个${result.repeatReds.length ? `（${result.repeatReds.map(pad2).join(" ")}）` : ""}；蓝球${result.repeatBlue ? "重复" : "未重复"}。<br/>
+        与最新期红球重复 <strong>${result.repeatReds.length}</strong> 个${result.repeatReds.length ? `（${result.repeatReds.map(pad2).join(" ")}）` : ""}；蓝球${result.repeatBlue ? "重复" : "未重复"}。<br/>
         ${hitText}。历史未出现不代表更可能出现。
       </div>
     </div>
   `;
+}
+
+/* =========================================================
+   Toast
+   ========================================================= */
+export function toast(message, ms = 1800) {
+  const host = $("#toastHost");
+  if (!host) return;
+  const el = createEl("div", { cls: "toast", text: message });
+  host.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("is-out");
+    setTimeout(() => el.remove(), 220);
+  }, ms);
 }

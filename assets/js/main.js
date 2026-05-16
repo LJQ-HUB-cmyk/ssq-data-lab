@@ -29,6 +29,7 @@ import { danTuoTickets, complexTickets, combinations, priceOf } from "./combinat
 import { buildTrendMatrix } from "./trend.js";
 import {
   setupTabs,
+  setupTheme,
   renderLatest,
   renderHeroMeta,
   renderRank,
@@ -45,6 +46,7 @@ import {
   readGeneratorConfig,
   showGenError,
   setGenDiagnostics,
+  toast,
 } from "./ui.js";
 
 const state = {
@@ -99,18 +101,24 @@ function renderRatioList(el, entries, top = 8) {
   el.innerHTML = "";
   const totalCount = entries.reduce((a, b) => a + b[1], 0);
   const max = entries[0]?.[1] || 1;
-  for (const [k, v] of entries.slice(0, top)) {
+  const items = entries.slice(0, top);
+  for (const [k, v] of items) {
     const pct = ((v / totalCount) * 100).toFixed(1);
     const w = Math.round((v / max) * 100);
     const li = document.createElement("li");
     li.innerHTML = `
       <div class="ratio-row">
-        <span class="ratio-key mono">${k}</span>
-        <span class="ratio-bar"><i style="width:${w}%"></i></span>
-        <span class="ratio-val mono">${v} · ${pct}%</span>
+        <span class="ratio-key">${k}</span>
+        <span class="ratio-bar"><i style="width:0%"></i></span>
+        <span class="ratio-val">${v} · ${pct}%</span>
       </div>
     `;
     el.appendChild(li);
+    // 下一帧再设置真实宽度，触发 CSS 过渡
+    requestAnimationFrame(() => {
+      const fill = li.querySelector(".ratio-bar i");
+      if (fill) fill.style.width = `${w}%`;
+    });
   }
 }
 
@@ -368,6 +376,7 @@ async function onCopyAll() {
   const original = btn.textContent;
   btn.textContent = "已复制";
   setTimeout(() => (btn.textContent = original), 1200);
+  toast(`已复制 ${state.lastTickets.length} 注到剪贴板`);
 }
 
 function onSearch() {
@@ -383,8 +392,9 @@ async function onRefresh() {
     state.winSize = readWinSize();
     computeStats();
     renderAll();
+    toast(`已刷新：${draws.length} 期`);
   } catch (err) {
-    alert(`刷新失败：${err.message || err}`);
+    toast(`刷新失败：${err.message || err}`);
   } finally {
     setRefreshLoading(false);
   }
@@ -415,8 +425,36 @@ function bindInteractions() {
     $("#qIssue").value = "";
     renderDataTable();
   });
-  $("#btnExportCsv").addEventListener("click", exportCurrentCsv);
+  $("#btnExportCsv").addEventListener("click", () => {
+    exportCurrentCsv();
+    toast("已导出 CSV");
+  });
   $("#btnRefresh").addEventListener("click", onRefresh);
+  document.addEventListener("ssq:theme", () => {
+    // 主题切换时重绘所有 SVG（颜色取自 CSS 变量）
+    renderAll();
+  });
+
+  // tab 切换时重绘当前面板内的图表（避免隐藏期间宽度=0 的回退）
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.addEventListener("click", () => {
+      requestAnimationFrame(() => {
+        const name = t.dataset.tab;
+        if (name === "overview") {
+          renderBars($("#chartRedAll"), state.freqAllRed, RED_MAX, "red");
+          renderBars($("#chartBlueAll"), state.freqAllBlue, BLUE_MAX, "blue");
+        } else if (name === "insight") {
+          renderBars($("#chartRedMiss"), state.missRed, RED_MAX, "miss", { unit: "期" });
+          renderBars($("#chartBlueMiss"), state.missBlue, BLUE_MAX, "miss", { unit: "期" });
+        } else if (name === "distribution") {
+          renderDistributionPanel();
+        } else if (name === "trend") {
+          renderTrendPanel();
+        }
+      });
+    });
+  });
+
   window.addEventListener("resize", debounceResize);
   renderTools();
 }
@@ -434,6 +472,7 @@ function debounceResize() {
 
 async function main() {
   setupTabs();
+  setupTheme();
   try {
     const { meta, draws, source, fetchError } = await loadDraws();
     if (!draws.length) throw new Error("数据为空");

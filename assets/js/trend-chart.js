@@ -12,16 +12,22 @@ function el(name, attrs = {}, children = []) {
   return node;
 }
 
-// 基本走势图：横轴=期号（时间从左到右），纵轴=号码（1..size）
-// 命中用实心圆点，未命中用淡网格点；点上方文字显示数字
+function readVar(name, fallback) {
+  if (typeof window === "undefined") return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+// 走势图：横轴=号码，纵轴=期号（最近在最下方）
+// 命中渲染为彩色实心球，未命中渲染为淡点；连线展示当期"走向"
 export function renderTrend(container, draws, { size, kind = "red" } = {}) {
   container.innerHTML = "";
-  const cellW = 22;
-  const cellH = 18;
-  const padLeft = 80;
-  const padTop = 28;
+  const cellW = 24;
+  const cellH = 22;
+  const padLeft = 88;
+  const padTop = 30;
   const padRight = 16;
-  const padBottom = 12;
+  const padBottom = 14;
   const W = padLeft + cellW * size + padRight;
   const H = padTop + cellH * draws.length + padBottom;
 
@@ -30,67 +36,125 @@ export function renderTrend(container, draws, { size, kind = "red" } = {}) {
     viewBox: `0 0 ${W} ${H}`,
     width: W,
     height: H,
+    role: "img",
+    "aria-label": `${kind} trend lattice`,
   });
 
-  const color = kind === "blue" ? "rgba(58,163,255,.95)" : "rgba(255,59,59,.95)";
-  const colorFade = kind === "blue" ? "rgba(138,209,255,.5)" : "rgba(255,107,107,.5)";
+  const accent = kind === "blue" ? readVar("--blue", "#4aa8ff") : readVar("--red", "#ff4757");
+  const accentLight = kind === "blue" ? readVar("--blue-2", "#8fcaff") : readVar("--red-2", "#ff8084");
+  const accentDeep = kind === "blue" ? readVar("--blue-deep", "#1a6fc9") : readVar("--red-deep", "#c81d2a");
 
-  // 顶部号码刻度
+  const defs = el("defs");
+  const gradId = `tg-${kind}-${Math.random().toString(36).slice(2, 7)}`;
+  const grad = el("radialGradient", { id: gradId, cx: "32%", cy: "28%", r: "70%" });
+  grad.appendChild(el("stop", { offset: "0%", "stop-color": "#fff", "stop-opacity": "0.6" }));
+  grad.appendChild(el("stop", { offset: "100%", "stop-color": accentDeep, "stop-opacity": "0" }));
+  defs.appendChild(grad);
+  svg.appendChild(defs);
+
+  // 顶部数字刻度（粘住顶部，xlink 不需要）
   for (let n = 1; n <= size; n++) {
     const x = padLeft + (n - 0.5) * cellW;
+    const isMul5 = n % 5 === 0;
     const t = el("text", {
-      x, y: padTop - 12, "text-anchor": "middle",
-      "font-size": "10",
-      "font-family": "ui-monospace, Menlo, monospace",
-      fill: "rgba(255,255,255,.62)",
+      x, y: padTop - 12,
+      "text-anchor": "middle",
+      "font-size": isMul5 ? "10" : "9.5",
+      "font-family": "JetBrains Mono, ui-monospace, Menlo, monospace",
+      fill: isMul5 ? "rgba(255,255,255,.78)" : "rgba(255,255,255,.42)",
+      "font-weight": isMul5 ? "700" : "400",
     });
     t.textContent = pad2(n);
     svg.appendChild(t);
   }
 
-  // 斑马纹背景
+  // 区段分隔（红球）
+  if (kind === "red" && size === 33) {
+    [11, 22].forEach((boundary) => {
+      const x = padLeft + boundary * cellW;
+      svg.appendChild(el("line", {
+        x1: x, x2: x,
+        y1: padTop - 4, y2: H - padBottom + 4,
+        stroke: "rgba(255,255,255,.10)",
+        "stroke-dasharray": "2 3",
+      }));
+    });
+  }
+
   draws.forEach((d, rowIdx) => {
     const y = padTop + rowIdx * cellH;
+    const yMid = y + cellH / 2;
+    const redsArr = d.reds && d.reds.has ? Array.from(d.reds) : (Array.isArray(d.reds) ? d.reds : []);
+
+    // 斑马底
     if (rowIdx % 2 === 0) {
       svg.appendChild(el("rect", {
         x: 0, y, width: W, height: cellH,
-        fill: "rgba(255,255,255,.015)",
+        fill: "rgba(255,255,255,.018)",
       }));
     }
+    // 行分隔线
+    svg.appendChild(el("line", {
+      x1: padLeft, x2: W - padRight,
+      y1: y + cellH, y2: y + cellH,
+      stroke: "rgba(255,255,255,.04)",
+    }));
 
+    // 期号 label
     const label = el("text", {
-      x: padLeft - 8, y: y + cellH / 2 + 3,
+      x: padLeft - 10, y: yMid + 3.5,
       "text-anchor": "end",
       "font-size": "10",
-      "font-family": "ui-monospace, Menlo, monospace",
+      "font-family": "JetBrains Mono, ui-monospace, Menlo, monospace",
       fill: "rgba(255,255,255,.55)",
     });
     label.textContent = d.issue;
     svg.appendChild(label);
 
+    // 当期连线（红球）：先画线再画球，让线落在球下方
+    if (kind === "red" && redsArr.length > 1) {
+      const sorted = [...redsArr].sort((a, b) => a - b);
+      const points = sorted.map((n) => `${padLeft + (n - 0.5) * cellW},${yMid}`).join(" ");
+      svg.appendChild(el("polyline", {
+        points,
+        fill: "none",
+        stroke: accentLight,
+        "stroke-opacity": "0.16",
+        "stroke-width": "1.2",
+      }));
+    }
+
+    // 命中点 + 未命中淡点
     for (let n = 1; n <= size; n++) {
       const cx = padLeft + (n - 0.5) * cellW;
-      const cy = y + cellH / 2;
-      const hit = kind === "blue" ? d.blue === n : d.reds.has(n);
-      if (hit) {
+      const isHit = kind === "blue" ? d.blue === n : (d.reds.has ? d.reds.has(n) : redsArr.includes(n));
+
+      if (isHit) {
         svg.appendChild(el("circle", {
-          cx, cy, r: 7, fill: color,
-          stroke: "rgba(255,255,255,.2)",
-          "stroke-width": 0.8,
+          cx, cy: yMid, r: 8.5,
+          fill: accent,
+          stroke: "rgba(255,255,255,.18)",
+          "stroke-width": 0.6,
+        }));
+        svg.appendChild(el("circle", {
+          cx, cy: yMid, r: 8.5,
+          fill: `url(#${gradId})`,
+          opacity: 0.6,
         }));
         const t = el("text", {
-          x: cx, y: cy + 3.2,
+          x: cx, y: yMid + 3.4,
           "text-anchor": "middle",
-          "font-size": "9",
-          "font-family": "ui-monospace, monospace",
-          fill: kind === "blue" ? "#051c2b" : "#2b0505",
+          "font-size": "9.2",
+          "font-family": "JetBrains Mono, ui-monospace, Menlo, monospace",
+          fill: "#fff",
           "font-weight": "700",
         });
         t.textContent = pad2(n);
         svg.appendChild(t);
       } else {
         svg.appendChild(el("circle", {
-          cx, cy, r: 1.6, fill: colorFade, opacity: 0.25,
+          cx, cy: yMid, r: 1.5,
+          fill: "rgba(255,255,255,.22)",
         }));
       }
     }
