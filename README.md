@@ -3,7 +3,7 @@
 [![GitHub Pages](https://img.shields.io/badge/demo-github%20pages-brightgreen?style=flat-square&logo=github)](https://wanghao137.github.io/ssq-data-lab/)
 [![Cloudflare Pages](https://img.shields.io/badge/镜像-cloudflare%20pages-f38020?style=flat-square&logo=cloudflare&logoColor=white)](https://ssq-data-lab.pages.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-61%20passed-success?style=flat-square)](./tests)
+[![Tests](https://img.shields.io/badge/tests-65%20passed-success?style=flat-square)](./tests)
 [![No build step](https://img.shields.io/badge/build-zero--config-informational?style=flat-square)](./index.html)
 
 [English](./README.en.md) · **中文**
@@ -17,17 +17,39 @@
 - **GitHub Pages**（海外友好）：<https://wanghao137.github.io/ssq-data-lab/>
 - **Cloudflare Pages**（国内友好镜像）：<https://ssq-data-lab.pages.dev/>
 
+## 截图
+
+> 暗色主题（默认）+ 亮色主题，编辑级排版 · 玻璃态顶栏 · 系统化色板。
+> 顶栏右上角的月亮/太阳按钮可一键切换主题，URL hash 同步当前 Tab。
+
 ## 特性
 
-- **基本走势图**：近 30/50/100 期的红球、蓝球命中点阵
-- **冷热 / 遗漏分析**：频次柱状图 + 遗漏期数
-- **分布分析**：奇偶比、大小比、质合比、012 路、三区比、AC 值、和值、跨度的历史分布
-- **卡方拟合优度检验**：用统计方法验证"均匀分布"假设，p 值实时计算（差异化功能）
-- **加权随机生成器**：热/冷/混合/均匀策略 × 和值/奇偶/跨度/分区约束
-- **胆拖 / 复式注数试算**：C(n, k) 实时计算
-- **数据源**：500.com 历史接口，每周一/三/五自动拉取最近 30 期合并
+### 数据与可视化
+- **走势图**：近 30/50/100 期红蓝点阵，球体加高光、当期 6 球低饱和连线
+- **冷热 / 遗漏分析**：频次柱状图 + 距上次出现的期数
+- **分布分析**：奇偶比、大小比、质合比、012 路、三区比、AC 值、和值、跨度
+- **卡方拟合优度检验**：实时 p 值，验证「均匀分布」假设（差异化功能）
 
-**技术栈**：原生 ES modules + SVG，零构建；Python stdlib 抓取；Node.js / unittest 测试。**无任何 runtime 依赖**。
+### 工具
+- **加权随机生成器**：热 / 冷 / 混合 / 均匀策略 × 和值 / 奇偶 / 跨度 / 分区 / AC / 连号约束
+- **胆码 / 排除**：胆码必含、排除红蓝球、避开上一期红球
+- **低撞号 + 分散覆盖**：多注之间降低撞号风险（不提高单注命中率）
+- **胆拖 / 复式注数试算**：实时 C(n, k) 与金额
+- **号码体检**：任意一注红蓝号码，输出 10 项分布指标 + 历史完全重合查询
+
+### 数据
+- **开奖记录**：搜索（期号 / 日期 / 红球组合 / 蓝 NN）+ CSV 导出
+- **数据源**：500.com 历史接口，每周一/三/五 GitHub Actions 自动拉取最近 30 期合并
+
+### 设计与交互
+- **双主题**：暗色 / 亮色一键切换，本地持久化
+- **响应式**：从 360px 手机到 4K 显示器自适应
+- **键盘可访问**：Tab / 方向键导航，跳到主要内容链接，ARIA tabpanel
+- **零构建零依赖**：纯 ES Modules + SVG，加载即用
+- **离线兜底**：双击 `index.html` 也能跑（通过 `data/draws.js` 内置兜底数据）
+- **打印样式**：可直接打印任意分析页
+
+**技术栈**：原生 ES Modules + SVG，零构建；Python stdlib 抓取；Node.js / unittest 测试。**无任何 runtime 依赖**。
 
 ## 快速开始
 
@@ -41,7 +63,7 @@ npm run serve
 # → http://localhost:5173/
 
 # 跑测试
-npm test           # 前端单测（61 个）
+npm test           # 前端单测（65 个）
 npm run test:py    # 抓取脚本（15 个）
 
 # 抓最新数据
@@ -50,13 +72,23 @@ npm run update-data
 
 > 要求：Node.js ≥ 18、Python ≥ 3.10。
 
+## 设计语言
+
+**编辑级排版**：标题 serif、正文 sans-serif、数字 JetBrains Mono / 系统等宽字体回退，所有数字 `tabular-nums` 对齐。
+
+**Token 化色板**：`--bg-*` / `--surface-*` / `--stroke-*` / `--muted-*` 三层；`--red` / `--blue` / `--acid` / `--gold` / `--plum` 五种语义色；通过 `[data-theme="light|dark"]` 切换整套 Token。
+
+**玻璃拟态顶栏**：`backdrop-filter: blur + saturate`，配合三层径向极光背景与可见网格。
+
+**球体**：radial-gradient 高光 + inset shadow，逼近实物质感；红/蓝两色与单一蓝球前的「+」分隔均由 CSS 完成。
+
 ## 目录结构
 
 ```
 ssq-data-lab/
 ├── index.html                  单页入口，8 个 Tab
 ├── assets/
-│   ├── styles.css
+│   ├── styles.css              Token 化设计系统（dark + light 双主题）
 │   └── js/
 │       ├── main.js             生命周期 + 事件
 │       ├── data.js             fetch + window.__SSQ_DATA__ 兜底
@@ -68,11 +100,11 @@ ssq-data-lab/
 │       ├── trend-chart.js      走势点阵 SVG
 │       ├── chart.js            频次柱状图 SVG
 │       ├── generator.js        加权采样
-│       ├── ui.js               DOM 渲染
+│       ├── ui.js               DOM 渲染 / 主题 / Toast
 │       └── utils.js            $ / pad2 / clamp / ...
 ├── data/
 │   ├── draws.json              3450+ 期主数据
-│   └── draws.js                window.__SSQ_DATA__ 等价副本
+│   └── draws.js                window.__SSQ_DATA__ 等价副本（file:// 兜底）
 ├── tools/
 │   ├── parse_ssq.py            txt / xlsx → draws.json
 │   ├── update_ssq.py           500.com 抓取 + 合并
@@ -83,6 +115,7 @@ ssq-data-lab/
 │   ├── distribution.test.mjs
 │   ├── chi-square.test.mjs
 │   ├── combinatorics.test.mjs
+│   ├── utils.test.mjs
 │   └── test_update_ssq.py
 ├── docs/
 │   └── DEPLOYMENT.md
@@ -117,6 +150,17 @@ python tools/parse_ssq.py 历史.txt data/draws.json
 
 见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)。推荐 **GitHub Pages + Cloudflare Pages 双通道**（覆盖海外 + 国内）。
 
+## 这个项目和别的「彩票分析工具」哪里不一样
+
+GitHub 上的「双色球分析」基本只有两类：
+
+1. **走势图玩具** — 抄 500.com 的版式，没有任何统计严谨度
+2. **「AI 预测」项目** — LSTM 预测下一期，把统计上不可能的东西包装成聪明
+
+本项目都不是。它**用真正的统计学说明没有什么可预测的** —— 卡方面板实时计算 p 值，告诉你能否拒绝「均匀分布」的原假设。3400 期数据上的答案是：**蓝球与均匀随机不可区分；红球存在与硬件噪声一致的边缘偏差；两者都不构成可预测性。**
+
+这就是这个项目想说的。生成器明确地被定义为「为了好玩的加权骰子」—— 它不会改变中奖概率。
+
 ## 贡献
 
 欢迎 PR。先读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
@@ -129,7 +173,7 @@ python tools/parse_ssq.py 历史.txt data/draws.json
 ## 免责声明
 
 - 彩票为随机事件，历史统计**无法**预测未来
-- 本工具仅输出"加权随机"建议，**不提高**中奖概率
+- 本工具仅输出「加权随机」建议，**不提高**中奖概率
 - 理性消费、量力而行；**未成年人禁止参与**
 - 本项目不从购彩行为中获取任何直接或间接收益
 
