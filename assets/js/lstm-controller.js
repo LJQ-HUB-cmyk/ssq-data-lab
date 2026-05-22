@@ -1,6 +1,6 @@
 // LSTM 面板的 UI 控制器
 //
-// 职责：从 #panel-lstm 表单读参数 → 调用 trainer/backtest → 把结果渲染回页面
+// 职责：从 #panel-lstm 表单读参数 → 调用 trainer/backtest/ensemble → 渲染回页面
 
 import { $, pad2 } from "./utils.js";
 import { toast, copyToClipboard } from "./ui.js";
@@ -15,13 +15,20 @@ import {
   backtestModel, backtestFreqBaseline, backtestBayesBaseline, backtestUniformBaseline,
   RANDOM_BASELINE,
 } from "./nn-backtest.js";
+import {
+  bootstrapCI, pairedBootstrap,
+  metricAvgHit6, metricBlueAcc,
+  reliabilityDiagram,
+} from "./nn-statistics.js";
+import { trainEnsemble, ensembleForward } from "./nn-ensemble.js";
 import { createRng } from "./rng.js";
 
-const STORAGE_KEY = "ssq-lstm-model-v1";
+const STORAGE_KEY = "ssq-lstm-model-v2";
 
 const state = {
   draws: [],
-  model: null,
+  model: null,        // 单模型
+  ensemble: null,     // K 个模型 [{model}, ...]
   history: null,
   trainSamples: null,
   valSamples: null,
@@ -63,12 +70,16 @@ async function onTrain() {
   try {
     const seqLen = clampInt("#lstmSeqLen", 5, 50, 15);
     const hidden = clampInt("#lstmHidden", 16, 256, 64);
+    const numLayers = clampInt("#lstmLayers", 1, 4, 2);
     const split = clampNum("#lstmSplit", 0.5, 0.95, 0.85);
     const lr = clampNum("#lstmLr", 1e-4, 0.1, 0.003);
     const epochs = clampInt("#lstmEpochs", 1, 100, 20);
     const batchSize = clampInt("#lstmBatch", 4, 128, 32);
+    const dropoutInput = clampNum("#lstmDropIn", 0, 0.5, 0.1);
+    const dropoutHidden = clampNum("#lstmDropHidden", 0, 0.5, 0.2);
+    const dropoutOutput = clampNum("#lstmDropOut", 0, 0.5, 0.2);
+    const ensembleK = clampInt("#lstmEnsembleK", 1, 8, 1);
     const seedStr = $("#lstmSeed")?.value?.trim() || `train-${Date.now()}`;
-    const rng = createRng(seedStr).next;
     state.seqLen = seqLen;
 
     setStatus("准备样本…");
@@ -78,39 +89,75 @@ async function onTrain() {
     state.trainSamples = samples.slice(0, splitIdx);
     state.valSamples = samples.slice(splitIdx);
 
-    setStatus(`训练中：${state.trainSamples.length} 训练 / ${state.valSamples.length} 验证 · H=${hidden} · T=${seqLen}`);
-    state.model = createModel({ hiddenDim: hidden, rng });
+    const arch = `H=${hidden} · L=${numLayers} · drop[in/h/out]=${dropoutInput}/${dropoutHidden}/${dropoutOutput} · K=${ensembleK}`;
+    setStatus(`训练：${state.trainSamples.length} train / ${state.valSamples.length} val · T=${seqLen} · ${arch}`);
     state.history = null;
+    state.ensemble = null;
+    state.model = null;
     initCurves();
+    resetLiveSeries();
 
     const t0 = Date.now();
-    const result = await trainModel(state.model, state.trainSamples, state.valSamples, {
+    const baseModelOpts = {
+      hiddenDim: hidden, numLayers,
+      dropoutInput, dropoutHidden, dropoutOutput,
+    };
+    const baseTrainOpts = {
       epochs, batchSize, lr,
       gradClip: 5,
       patience: 6,
       weightDecay: 1e-5,
-      rng,
-      onBatch: (b) => {
-        if (b.totalBatches) setProgress(b.batch / b.totalBatches);
-        if (b.nan) setStatus(`epoch ${b.epoch + 1} batch ${b.batch}: NaN 跳过`, "warn");
-      },
-      onEpoch: (e) => {
-        appendCurve(e);
-        setStatus(`epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)} · 蓝 acc ${(e.valBlueAcc * 100).toFixed(1)}%`);
-        setProgress((e.epoch + 1) / e.totalEpochs);
-      },
-      shouldStop: () => state.shouldStop,
-    });
-    state.history = result.history;
+    };
+
+    if (ensembleK > 1) {
+      const result = await trainEnsemble(state.trainSamples, state.valSamples, {
+        K: ensembleK,
+        seedBase: seedStr,
+        modelOpts: baseModelOpts,
+        trainOpts: {
+          ...baseTrainOpts,
+          onBatch: (b) => {
+            if (b.totalBatches) setProgress((b.member / b.totalMembers) + (b.batch / b.totalBatches / b.totalMembers));
+          },
+          onEpoch: (e) => {
+            appendCurve(e, e.member);
+            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)} · 蓝 ${(e.valBlueAcc * 100).toFixed(1)}%`);
+          },
+        },
+        shouldStop: () => state.shouldStop,
+      });
+      state.ensemble = { members: result.members, histories: result.histories };
+      state.history = result.histories[result.histories.length - 1];
+    } else {
+      const memberRng = createRng(seedStr).next;
+      state.model = createModel({ ...baseModelOpts, rng: memberRng });
+      const result = await trainModel(state.model, state.trainSamples, state.valSamples, {
+        ...baseTrainOpts,
+        rng: memberRng,
+        onBatch: (b) => {
+          if (b.totalBatches) setProgress(b.batch / b.totalBatches);
+          if (b.nan) setStatus(`epoch ${b.epoch + 1} batch ${b.batch}: NaN 跳过`, "warn");
+        },
+        onEpoch: (e) => {
+          appendCurve(e);
+          setStatus(`epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)} · 蓝 acc ${(e.valBlueAcc * 100).toFixed(1)}%`);
+          setProgress((e.epoch + 1) / e.totalEpochs);
+        },
+        shouldStop: () => state.shouldStop,
+      });
+      state.history = result.history;
+    }
+
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-    setStatus(`训练完成 · ${elapsed}s · best val ${result.bestValLoss.toFixed(4)}`, "ok");
+    const bestLoss = state.history ? Math.min(...state.history.valLoss).toFixed(4) : "—";
+    setStatus(`训练完成 · ${elapsed}s · best val ${bestLoss}${state.ensemble ? ` · ${ensembleK} 模型集成` : ""}`, "ok");
     setProgress(1);
 
-    renderFinalMetrics(result.history);
+    if (state.history) renderFinalMetrics(state.history);
 
     $("#btnLstmPredict").disabled = false;
     $("#btnLstmBacktest").disabled = false;
-    $("#btnLstmSave").disabled = false;
+    $("#btnLstmSave").disabled = !state.model; // ensemble 暂不支持保存
   } catch (err) {
     setStatus(`错误：${err.message || err}`, "bad");
     console.error(err);
@@ -124,15 +171,27 @@ async function onTrain() {
  * 预测下一期
  * ============================================================ */
 function onPredict() {
-  if (!state.model) return;
+  if (!state.model && !state.ensemble) return;
   const window = state.draws.slice(-state.seqLen);
   const seq = encodeSequence(window);
-  const fwd = forwardModel(state.model, seq);
-  const top6 = topKRed(fwd.redProbs, 6);
-  const top10 = topKRed(fwd.redProbs, 10);
-  const blueArg = argMaxBlue(fwd.blueProbs);
+
+  let redProbs, blueProbs, redStd = null, blueStd = null;
+  if (state.ensemble) {
+    const out = ensembleForward(state.ensemble.members, seq);
+    redProbs = out.redProbs;
+    blueProbs = out.blueProbs;
+    redStd = out.redStd;
+    blueStd = out.blueStd;
+  } else {
+    const fwd = forwardModel(state.model, seq, { training: false });
+    redProbs = fwd.redProbs;
+    blueProbs = fwd.blueProbs;
+  }
+
+  const top6 = topKRed(redProbs, 6);
+  const blueArg = argMaxBlue(blueProbs);
   const blueRanked = [];
-  for (let i = 0; i < BLUE_DIM; i++) blueRanked.push([i + 1, fwd.blueProbs.data[i]]);
+  for (let i = 0; i < BLUE_DIM; i++) blueRanked.push([i + 1, blueProbs.data[i]]);
   blueRanked.sort((a, b) => b[1] - a[1]);
 
   const card = $("#lstmPredictionCard");
@@ -142,31 +201,43 @@ function onPredict() {
   // 红球 33 个号码概率热度条
   const redBars = [];
   let redMax = 0;
-  for (let i = 0; i < RED_DIM; i++) redMax = Math.max(redMax, fwd.redProbs.data[i]);
+  for (let i = 0; i < RED_DIM; i++) redMax = Math.max(redMax, redProbs.data[i]);
   for (let i = 0; i < RED_DIM; i++) {
-    const p = fwd.redProbs.data[i];
+    const p = redProbs.data[i];
     const w = (p / Math.max(1e-9, redMax)) * 100;
     const isPicked = top6.some(([n]) => n === i + 1);
+    const stdInfo = redStd
+      ? ` <span class="muted fine">±${(redStd.data[i] * 100).toFixed(1)}%</span>`
+      : "";
     redBars.push(`
       <div class="prob-row">
         <span class="ball red ${isPicked ? "" : "muted-ball"}" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(i + 1)}</span>
         <span class="prob-bar"><i style="width:${w.toFixed(1)}%"></i></span>
-        <span class="mono prob-val">${(p * 100).toFixed(1)}%</span>
+        <span class="mono prob-val">${(p * 100).toFixed(1)}%${stdInfo}</span>
       </div>
     `);
   }
   // 蓝球
-  const blueBars = blueRanked.map(([n, p]) => `
-    <div class="prob-row">
-      <span class="ball blue ${n === blueArg.num ? "" : "muted-ball"}" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(n)}</span>
-      <span class="prob-bar"><i style="width:${(p * 100).toFixed(1)}%"></i></span>
-      <span class="mono prob-val">${(p * 100).toFixed(1)}%</span>
-    </div>
-  `).join("");
+  const blueBars = blueRanked.map(([n, p]) => {
+    const stdInfo = blueStd
+      ? ` <span class="muted fine">±${(blueStd.data[n - 1] * 100).toFixed(1)}%</span>`
+      : "";
+    return `
+      <div class="prob-row">
+        <span class="ball blue ${n === blueArg.num ? "" : "muted-ball"}" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(n)}</span>
+        <span class="prob-bar"><i style="width:${(p * 100).toFixed(1)}%"></i></span>
+        <span class="mono prob-val">${(p * 100).toFixed(1)}%${stdInfo}</span>
+      </div>
+    `;
+  }).join("");
+
+  const ensembleBadge = state.ensemble
+    ? `<span class="chip chip-ok" style="margin-left:8px">${state.ensemble.members.length} 模型集成</span>`
+    : "";
 
   body.innerHTML = `
     <div class="prediction-pick">
-      <div class="prediction-label">Top-6 红 + 蓝</div>
+      <div class="prediction-label">Top-6 红 + 蓝${ensembleBadge}</div>
       <div class="balls">
         ${top6.map(([n]) => `<span class="ball red">${pad2(n)}</span>`).join("")}
         <span class="ball blue plus">${pad2(blueArg.num)}</span>
@@ -174,11 +245,11 @@ function onPredict() {
     </div>
     <div class="prediction-cols">
       <div>
-        <div class="card-title">红球 33 路概率</div>
+        <div class="card-title">红球 33 路概率${redStd ? "（± 集成 std）" : ""}</div>
         ${redBars.join("")}
       </div>
       <div>
-        <div class="card-title">蓝球 16 路概率</div>
+        <div class="card-title">蓝球 16 路概率${blueStd ? "（± 集成 std）" : ""}</div>
         ${blueBars}
       </div>
     </div>
@@ -199,13 +270,12 @@ function onPredict() {
  * Walk-forward 回测
  * ============================================================ */
 async function onBacktest() {
-  if (!state.model) return;
+  const sourceModel = state.model || (state.ensemble ? state.ensemble.members[0] : null);
+  if (!sourceModel) return;
   setStatus("回测中…");
   await pause();
   try {
-    // 用最后 valSamples 对应的真实期数做回测
     const seqLen = state.seqLen;
-    // 找到 train/val 的分界 issue
     const valTargets = state.valSamples.map((s) => s.raw.target);
     const valIssues = new Set(valTargets.map((d) => d.issue));
     const splitIdx = state.draws.findIndex((d) => valIssues.has(d.issue));
@@ -213,7 +283,13 @@ async function onBacktest() {
     const trainTail = state.draws.slice(splitIdx - seqLen, splitIdx);
     const testDraws = state.draws.slice(splitIdx);
 
-    const lstmRes = backtestModel(state.model, trainTail, testDraws, seqLen);
+    // LSTM（单模型 or ensemble 第一个）；如果有 ensemble，再额外算一个 ensemble backtest
+    const lstmRes = backtestModel(sourceModel, trainTail, testDraws, seqLen);
+    let ensembleRes = null;
+    if (state.ensemble && state.ensemble.members.length > 1) {
+      ensembleRes = backtestEnsemble(state.ensemble.members, trainTail, testDraws, seqLen);
+    }
+
     const freqRes = backtestFreqBaseline(state.draws.slice(0, splitIdx), testDraws);
     const bayesRes = backtestBayesBaseline(state.draws.slice(0, splitIdx), testDraws);
     const uniformRes = backtestUniformBaseline(testDraws, 100, "uniform-baseline");
@@ -221,7 +297,7 @@ async function onBacktest() {
     const card = $("#lstmBacktestCard");
     const body = $("#lstmBacktestBody");
     card.style.display = "";
-    body.innerHTML = renderBacktestTable(lstmRes, freqRes, bayesRes, uniformRes, testDraws.length);
+    body.innerHTML = renderBacktestTable(lstmRes, ensembleRes, freqRes, bayesRes, uniformRes, testDraws.length);
     setStatus(`回测完成：${testDraws.length} 期`, "ok");
   } catch (err) {
     setStatus(`回测失败：${err.message || err}`, "bad");
@@ -229,70 +305,145 @@ async function onBacktest() {
   }
 }
 
-function renderBacktestTable(lstm, freq, bayes, uniform, n) {
+function backtestEnsemble(members, trainTail, testDraws, seqLen) {
+  let history = trainTail.slice(-seqLen);
+  const records = [];
+  for (const target of testDraws) {
+    const window = history.slice(-seqLen);
+    const seq = encodeSequence(window);
+    const out = ensembleForward(members, seq);
+    const top6 = topKRed(out.redProbs, 6).map(([n]) => n);
+    const top8 = topKRed(out.redProbs, 8).map(([n]) => n);
+    const blueArg = argMaxBlue(out.blueProbs);
+    const redHit6 = top6.filter((n) => target.reds.includes(n)).length;
+    const redHit8 = top8.filter((n) => target.reds.includes(n)).length;
+    let brier = 0;
+    for (let i = 0; i < RED_DIM; i++) {
+      const p = out.redProbs.data[i];
+      const y = target.reds.includes(i + 1) ? 1 : 0;
+      brier += (p - y) ** 2;
+    }
+    brier /= RED_DIM;
+    let redLL = 0;
+    for (let i = 0; i < RED_DIM; i++) {
+      const p = Math.max(1e-12, Math.min(1 - 1e-12, out.redProbs.data[i]));
+      const y = target.reds.includes(i + 1) ? 1 : 0;
+      redLL -= y * Math.log(p) + (1 - y) * Math.log(1 - p);
+    }
+    redLL /= RED_DIM;
+    let blueLL = 0;
+    for (let i = 0; i < BLUE_DIM; i++) {
+      const p = Math.max(1e-12, out.blueProbs.data[i]);
+      const y = (target.blue === i + 1) ? 1 : 0;
+      blueLL -= y * Math.log(p);
+    }
+    records.push({
+      issue: target.issue, realReds: target.reds, realBlue: target.blue,
+      predTop6: top6, predBlue: blueArg.num, predBlueProb: blueArg.prob,
+      redHit6, redHit8,
+      blueHit: blueArg.num === target.blue,
+      brier, redLL, blueLL,
+      redProbs: Array.from(out.redProbs.data),
+      blueProbs: Array.from(out.blueProbs.data),
+    });
+    history.push(target);
+  }
+  const summary = {
+    n: records.length,
+    avgRedHit6: records.reduce((s, r) => s + r.redHit6, 0) / records.length,
+    avgRedHit8: records.reduce((s, r) => s + r.redHit8, 0) / records.length,
+    blueAccuracy: records.reduce((s, r) => s + (r.blueHit ? 1 : 0), 0) / records.length,
+    avgBrier: records.reduce((s, r) => s + r.brier, 0) / records.length,
+    avgRedLL: records.reduce((s, r) => s + r.redLL, 0) / records.length,
+    avgBlueLL: records.reduce((s, r) => s + r.blueLL, 0) / records.length,
+  };
+  return { records, summary };
+}
+
+function renderBacktestTable(lstm, ensemble, freq, bayes, uniform, n) {
   const fmt = (v, d = 4) => (v == null ? "—" : v.toFixed(d));
   const pct = (v) => (v == null ? "—" : `${(v * 100).toFixed(2)}%`);
 
-  const rows = [
-    {
-      label: "LSTM（你的模型）",
+  // 关键策略的 95% bootstrap CI
+  const lstmCi = bootstrapCI(lstm.records, metricAvgHit6, { B: 500, seed: "bt-lstm" });
+  const lstmBlueCi = bootstrapCI(lstm.records, metricBlueAcc, { B: 500, seed: "bt-lstm-b" });
+  const uniCi = bootstrapCI(uniform.records, metricAvgHit6, { B: 500, seed: "bt-uni" });
+
+  // Paired bootstrap：LSTM vs Uniform 红球差异
+  const paired = pairedBootstrap(lstm.records, uniform.records, metricAvgHit6, { B: 500, seed: "bt-paired" });
+
+  const formatCI = (mean, lo, hi) => `${mean.toFixed(3)} <span class="muted">[${lo.toFixed(3)}, ${hi.toFixed(3)}]</span>`;
+  const formatPctCI = (mean, lo, hi) => `${(mean*100).toFixed(2)}% <span class="muted">[${(lo*100).toFixed(2)}, ${(hi*100).toFixed(2)}]</span>`;
+
+  const rows = [];
+  rows.push({
+    label: "LSTM（单模型）",
+    tag: "primary",
+    redHit6Cell: formatCI(lstm.summary.avgRedHit6, lstmCi.lower, lstmCi.upper),
+    redHit8: lstm.summary.avgRedHit8,
+    blueAccCell: formatPctCI(lstm.summary.blueAccuracy, lstmBlueCi.lower, lstmBlueCi.upper),
+    brier: lstm.summary.avgBrier,
+    ll: lstm.summary.avgRedLL + lstm.summary.avgBlueLL,
+  });
+  if (ensemble) {
+    const ensCi = bootstrapCI(ensemble.records, metricAvgHit6, { B: 500, seed: "bt-ens" });
+    const ensBlueCi = bootstrapCI(ensemble.records, metricBlueAcc, { B: 500, seed: "bt-ens-b" });
+    rows.push({
+      label: `LSTM Ensemble (K=${state.ensemble.members.length})`,
       tag: "primary",
-      redHit6: lstm.summary.avgRedHit6,
-      redHit8: lstm.summary.avgRedHit8,
-      blueAcc: lstm.summary.blueAccuracy,
-      brier: lstm.summary.avgBrier,
-      ll: lstm.summary.avgRedLL + lstm.summary.avgBlueLL,
-    },
-    {
-      label: "贝叶斯后验 baseline",
-      redHit6: bayes.summary.avgRedHit6,
-      redHit8: bayes.summary.avgRedHit8,
-      blueAcc: bayes.summary.blueAccuracy,
-    },
-    {
-      label: "频率 baseline",
-      redHit6: freq.summary.avgRedHit6,
-      redHit8: freq.summary.avgRedHit8,
-      blueAcc: freq.summary.blueAccuracy,
-    },
-    {
-      label: "均匀随机 baseline (100次蒙特卡洛)",
-      redHit6: uniform.summary.avgRedHit6,
-      redHit8: uniform.summary.avgRedHit8,
-      blueAcc: uniform.summary.blueAccuracy,
-    },
-    {
-      label: "理论期望（任意预测器渐近）",
-      tag: "theory",
-      redHit6: RANDOM_BASELINE.redHit6,
-      redHit8: RANDOM_BASELINE.redHit8,
-      blueAcc: RANDOM_BASELINE.blueAcc,
-    },
-  ];
+      redHit6Cell: formatCI(ensemble.summary.avgRedHit6, ensCi.lower, ensCi.upper),
+      redHit8: ensemble.summary.avgRedHit8,
+      blueAccCell: formatPctCI(ensemble.summary.blueAccuracy, ensBlueCi.lower, ensBlueCi.upper),
+      brier: ensemble.summary.avgBrier,
+      ll: ensemble.summary.avgRedLL + ensemble.summary.avgBlueLL,
+    });
+  }
+  rows.push({
+    label: "贝叶斯后验 baseline",
+    redHit6Cell: bayes.summary.avgRedHit6.toFixed(3),
+    redHit8: bayes.summary.avgRedHit8,
+    blueAccCell: pct(bayes.summary.blueAccuracy),
+  });
+  rows.push({
+    label: "频率 baseline",
+    redHit6Cell: freq.summary.avgRedHit6.toFixed(3),
+    redHit8: freq.summary.avgRedHit8,
+    blueAccCell: pct(freq.summary.blueAccuracy),
+  });
+  rows.push({
+    label: "均匀随机 baseline (100×MC)",
+    redHit6Cell: formatCI(uniform.summary.avgRedHit6, uniCi.lower, uniCi.upper),
+    redHit8: uniform.summary.avgRedHit8,
+    blueAccCell: pct(uniform.summary.blueAccuracy),
+  });
+  rows.push({
+    label: "理论期望（任意预测器渐近）",
+    tag: "theory",
+    redHit6Cell: RANDOM_BASELINE.redHit6.toFixed(3),
+    redHit8: RANDOM_BASELINE.redHit8,
+    blueAccCell: pct(RANDOM_BASELINE.blueAcc),
+  });
 
   const tableRows = rows.map((r) => `
     <tr class="${r.tag === "primary" ? "row-primary" : ""}${r.tag === "theory" ? " row-theory" : ""}">
       <td>${r.label}</td>
-      <td class="mono">${fmt(r.redHit6, 3)}</td>
-      <td class="mono">${fmt(r.redHit8, 3)}</td>
-      <td class="mono">${pct(r.blueAcc)}</td>
+      <td class="mono">${r.redHit6Cell}</td>
+      <td class="mono">${typeof r.redHit8 === "number" ? r.redHit8.toFixed(3) : (r.redHit8 ?? "—")}</td>
+      <td class="mono">${r.blueAccCell}</td>
       <td class="mono">${r.brier != null ? fmt(r.brier) : "—"}</td>
       <td class="mono">${r.ll != null ? fmt(r.ll, 3) : "—"}</td>
     </tr>
   `).join("");
 
-  // 显著性提示：检查 LSTM 是否在 95% CI 内显著优于均匀
-  const lstmHit6 = lstm.summary.avgRedHit6;
-  const uniHit6 = uniform.summary.avgRedHit6;
-  // 红球 hit@6 ~ 二项 sum；近似 std = sqrt(6 * 6/33 * 27/33) ≈ 1.0
-  const sigmaPerSample = Math.sqrt(6 * (6 / 33) * (27 / 33));
-  const seMean = sigmaPerSample / Math.sqrt(n);
-  const z = (lstmHit6 - uniHit6) / seMean;
-  const pVal = approxNormalP(Math.abs(z));
+  // 主结论：paired bootstrap 95% CI 是否包含 0
+  const ciIncludesZero = paired.lower <= 0 && paired.upper >= 0;
+  const verdict = ciIncludesZero
+    ? `LSTM 与均匀随机的 hit@6 差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>包含 0</strong>，差异在统计上不显著——这正是预期：彩票是 i.i.d. 随机抽取，没有可学习的时间规律。`
+    : `LSTM 与均匀随机的 hit@6 差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>不含 0</strong>。但要警惕：(1) ${n} 期的局部偏差可能是数据集偏差，不一定泛化；(2) 即便差异真实，也可能源于硬件物理偏差或 multi-seed 选最优结果，不构成可重复的可预测性。`;
 
-  const verdict = pVal > 0.05
-    ? `<strong>p = ${pVal.toFixed(3)} &gt; 0.05</strong>，与均匀随机 <strong>统计上不可区分</strong>。这正是预期：彩票是 i.i.d. 随机抽取，没有可学习的时间规律。`
-    : `<strong>p = ${pVal.toFixed(3)} &lt; 0.05</strong>，差异显著。但要警惕：(1) 测试样本仅 ${n} 期，局部偏差可能；(2) 即便差异真实存在，也可能源于摇奖设备物理偏差，不构成可预测性。建议增大测试集复测。`;
+  // Reliability diagram for LSTM
+  const reliab = reliabilityDiagram(lstm.records, { bins: 10 });
+  const reliabSvg = renderReliabilityDiagram(reliab);
 
   return `
     <div class="bt-table-wrap">
@@ -300,9 +451,9 @@ function renderBacktestTable(lstm, freq, bayes, uniform, n) {
         <thead>
           <tr>
             <th>方法</th>
-            <th>红 Top-6 命中数</th>
-            <th>红 Top-8 命中数</th>
-            <th>蓝 Top-1 准确率</th>
+            <th>红 hit@6 [95% CI]</th>
+            <th>红 hit@8</th>
+            <th>蓝 Top-1 准确率 [95% CI]</th>
             <th>Brier</th>
             <th>NLL</th>
           </tr>
@@ -310,22 +461,46 @@ function renderBacktestTable(lstm, freq, bayes, uniform, n) {
         <tbody>${tableRows}</tbody>
       </table>
     </div>
-    <div class="callout" style="margin-top:12px">
-      <div class="callout-title">显著性检验</div>
-      <div class="callout-body">
-        n = ${n} 期。LSTM 红球 Top-6 期望命中 ${lstmHit6.toFixed(3)} vs 均匀基线 ${uniHit6.toFixed(3)}（z = ${z.toFixed(2)}）。<br/>
-        ${verdict}
-      </div>
+    <div class="callout" style="margin-top:14px">
+      <div class="callout-title">配对 Bootstrap 显著性检验（B=500）</div>
+      <div class="callout-body">${verdict}</div>
+    </div>
+    <div class="card" style="margin-top:14px; padding: var(--space-4)">
+      <div class="card-title">校准曲线 · Reliability Diagram <span class="card-num">ECE = ${reliab.ece.toFixed(4)}</span></div>
+      ${reliabSvg}
+      <div class="hint">点越接近对角线 y=x 越好——表示 "概率 20% 的号码大约真有 20% 的命中率"。完美校准 ECE = 0。</div>
     </div>
   `;
 }
 
-function approxNormalP(z) {
-  // 双侧 p 值的近似（Abramowitz & Stegun 26.2.17）
-  const t = 1 / (1 + 0.2316419 * z);
-  const d = 0.39894228 * Math.exp(-0.5 * z * z);
-  const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return 2 * p;
+function renderReliabilityDiagram(reliab) {
+  const W = 380, H = 220;
+  const padL = 36, padR = 12, padT = 12, padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const dots = reliab.points.map((p) => {
+    if (p.observedFreq == null) return "";
+    const cx = padL + p.avgPred * innerW;
+    const cy = padT + (1 - p.observedFreq) * innerH;
+    const r = 2 + Math.min(8, Math.sqrt(p.count) * 0.5);
+    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="var(--blue)" opacity="0.78"/>`;
+  }).join("");
+  const refLine = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4"/>`;
+  const xAxis = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
+  const yAxis = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
+  const xLabel = `<text x="${padL + innerW / 2}" y="${H - 6}" text-anchor="middle" font-size="10" font-family="JetBrains Mono, monospace" fill="rgba(255,255,255,.6)">预测概率（avg per bucket）</text>`;
+  const yLabel = `<text x="${padL - 28}" y="${padT + innerH / 2}" text-anchor="middle" font-size="10" font-family="JetBrains Mono, monospace" fill="rgba(255,255,255,.6)" transform="rotate(-90 ${padL - 28} ${padT + innerH / 2})">观察到的命中率</text>`;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((v) => {
+    const x = padL + v * innerW;
+    const y = padT + (1 - v) * innerH;
+    return `
+      <text x="${x}" y="${padT + innerH + 14}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
+      <text x="${padL - 4}" y="${y + 3}" text-anchor="end" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
+    `;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    ${xAxis}${yAxis}${refLine}${ticks}${xLabel}${yLabel}${dots}
+  </svg>`;
 }
 
 /* ============================================================
@@ -432,6 +607,13 @@ function initCurves() {
 const liveSeries = {
   trainLoss: [], valLoss: [], hit6: [], blueAcc: [],
 };
+
+function resetLiveSeries() {
+  liveSeries.trainLoss = [];
+  liveSeries.valLoss = [];
+  liveSeries.hit6 = [];
+  liveSeries.blueAcc = [];
+}
 
 function appendCurve(epochState) {
   liveSeries.trainLoss.push(epochState.trainLoss);

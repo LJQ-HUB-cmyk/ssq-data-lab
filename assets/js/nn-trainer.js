@@ -50,7 +50,8 @@ export function evaluate(model, samples) {
   let totalBlueHit = 0;
   let n = 0;
   for (const s of samples) {
-    const fwd = forwardModel(model, s.sequence);
+    // 推理模式：禁用 dropout
+    const fwd = forwardModel(model, s.sequence, { training: false });
     // 复用 lossAndGrads 计算 loss 略重；这里只算 loss
     let redLoss = 0;
     for (let i = 0; i < RED_DIM; i++) {
@@ -159,7 +160,7 @@ export async function trainModel(model, trainSamples, valSamples, opts = {}) {
       const accum = makeAccumGrads(model);
       let batchLoss = 0;
       for (const sample of batch) {
-        const { loss, grads } = lossAndGrads(model, sample.sequence, sample.target);
+        const { loss, grads } = lossAndGrads(model, sample.sequence, sample.target, { rng });
         batchLoss += loss;
         addInto(accum, flattenGrads(grads));
       }

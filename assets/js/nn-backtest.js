@@ -45,7 +45,7 @@ export function backtestModel(model, trainTail, testDraws, seqLen) {
   for (const target of testDraws) {
     const window = history.slice(-seqLen);
     const seq = encodeSequence(window);
-    const fwd = forwardModel(model, seq);
+    const fwd = forwardModel(model, seq, { training: false });
 
     const top6Red = topKRed(fwd.redProbs, 6).map(([n]) => n);
     const realReds = target.reds;

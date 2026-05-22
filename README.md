@@ -3,7 +3,7 @@
 [![GitHub Pages](https://img.shields.io/badge/demo-github%20pages-brightgreen?style=flat-square&logo=github)](https://wanghao137.github.io/ssq-data-lab/)
 [![Cloudflare Pages](https://img.shields.io/badge/镜像-cloudflare%20pages-f38020?style=flat-square&logo=cloudflare&logoColor=white)](https://ssq-data-lab.pages.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-188%20passed-success?style=flat-square)](./tests)
+[![Tests](https://img.shields.io/badge/tests-205%20passed-success?style=flat-square)](./tests)
 [![No build step](https://img.shields.io/badge/build-zero--config-informational?style=flat-square)](./index.html)
 [![PWA](https://img.shields.io/badge/PWA-offline%20ready-635bff?style=flat-square)](./manifest.webmanifest)
 [![LSTM](https://img.shields.io/badge/LSTM-from--scratch-ff4a6b?style=flat-square)](./assets/js/nn-lstm.js)
@@ -44,11 +44,15 @@
     - `MCMC（Metropolis-Hastings）`：多链组合空间采样，提供接受率 / ESS / Gelman-Rubin R̂ 收敛诊断
     - `经典加权随机`：保留原行为，作为基线
 - **LSTM 神经网络预测**（纯手写，零依赖）：
-    - 单层 LSTM (input 49 → hidden 64) + 红球 sigmoid 多标签头 + 蓝球 softmax 头
-    - Adam 优化器 + 梯度裁剪 + Xavier/Orthogonal 初始化 + AdamW weight decay
-    - 在浏览器本地训练，~30s/epoch（300 期 × H=64）
+    - **多层堆叠 LSTM**（1-4 层可配），i/f/g/o 门融合 W；输入/隐藏/输出三档 dropout（inverted）
+    - Adam 优化器 + 全局梯度裁剪 + Xavier/Orthogonal 初始化 + AdamW weight decay
+    - 训练 / 推理 mode 分离，evaluate 与 backtest 强制 inference mode
+    - 在浏览器本地训练，~30s/epoch（300 期 × H=64 × L=2）
     - **完整 walk-forward 回测**：与均匀随机 / 频率 / 贝叶斯后验 baseline 并排对比
-    - **梯度检查测试**：解析梯度与中心差分数值梯度对比，相对误差 < 5e-3
+    - **Bootstrap 95% CI**（B=500 重采样）+ **配对显著性检验**：自动给出"差异是否包含 0"的 verdict
+    - **Reliability diagram + ECE**：可视化预测概率是否校准
+    - **Deep Ensemble (K=1-8)**：多个不同初始化模型取均值，每个号码带 epistemic uncertainty
+    - **梯度检查测试**：单层 + 多层堆叠的解析梯度都对中心差分数值梯度做了验证（rel 误差 < 5e-3）
 - **采样质量度量**：JS 距离 / Wasserstein-1 与贝叶斯后验对比，0–100 综合质量分
 - **胆码 / 排除**：胆码必含、排除红蓝球、避开上一期红球
 - **低撞号 + 分散覆盖**：多注之间降低撞号风险（不提高单注命中率）

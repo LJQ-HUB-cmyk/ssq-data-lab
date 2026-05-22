@@ -1,20 +1,20 @@
 // SSQ LSTM 预测模型
 //
-// 架构：
+// 架构（升级版 V2）：
 //   输入: 序列长度 T，每步特征 49 维
 //        [redMultiHot(33) | blueOneHot(16)]
 //
-//   层:
-//     LSTM(49 → H)     —— 单层 LSTM，H 通常 64~128
+//   层（默认 numLayers=1，可配置 2、3 层）:
+//     Dropout(p_input)
+//     LSTM(49 → H)
+//     Dropout(p_hidden) 层间
+//     LSTM(H → H)
+//     ...
+//     Dropout(p_output) 在最后 h_T 上
 //     Dense Red Head:   h → 33 logits → sigmoid（每个红球独立 0/1，multi-label BCE）
 //     Dense Blue Head:  h → 16 logits → softmax（蓝球唯一，cross-entropy）
 //
-// 损失 = BCE(redLogits, redTarget) + BCE_BLUE_WEIGHT * CE(blueLogits, blueTarget)
-//   红球 multi-label 的 BCE 平均到 33 维；蓝球 CE 默认权重 6（与红球 6 个号对齐）。
-//
-// 推理：取最后一步 h_T，分别得到 red 概率向量和 blue 概率分布。
-//   红球预测 = argTopK(red_probs, 6)
-//   蓝球预测 = argMax(blue_probs)
+// 损失 = BCE(redLogits, redTarget) + BLUE_LOSS_WEIGHT * CE(blueLogits, blueTarget)
 
 import {
   makeMat, zero,
@@ -22,11 +22,12 @@ import {
   sigmoid, sigmoidBCEBackward, bceLoss,
   softmax, softmaxCEBackward, crossEntropy,
   xavierInit, matmulAdd,
+  makeDropoutMask, hadamard,
 } from "./nn-math.js";
 import {
-  createLSTM, lstmForward, lstmBackward,
-  serializeLSTM, deserializeLSTM,
-} from "./nn-lstm.js";
+  createStackedLSTM, stackedForward, stackedBackward,
+  serializeStack, deserializeStack,
+} from "./nn-stack.js";
 
 export const RED_DIM = 33;
 export const BLUE_DIM = 16;
@@ -59,8 +60,15 @@ export function encodeTarget(draw) {
 }
 
 /** 创建模型。 */
-export function createModel({ hiddenDim = 64, rng = Math.random } = {}) {
-  const lstm = createLSTM(FEATURE_DIM, hiddenDim, rng);
+export function createModel({
+  hiddenDim = 64,
+  numLayers = 1,
+  dropoutInput = 0,
+  dropoutHidden = 0,
+  dropoutOutput = 0,
+  rng = Math.random,
+} = {}) {
+  const stack = createStackedLSTM(FEATURE_DIM, hiddenDim, numLayers, rng);
   const redHead = {
     W: xavierInit(RED_DIM, hiddenDim, rng),
     b: makeMat(RED_DIM, 1),
@@ -71,7 +79,11 @@ export function createModel({ hiddenDim = 64, rng = Math.random } = {}) {
   };
   return {
     hiddenDim,
-    lstm,
+    numLayers,
+    dropoutInput,
+    dropoutHidden,
+    dropoutOutput,
+    stack,
     redHead,
     blueHead,
   };
@@ -79,16 +91,35 @@ export function createModel({ hiddenDim = 64, rng = Math.random } = {}) {
 
 /**
  * 一次完整前向：输入 T 期序列，使用最后一步的 h_T 做预测。
- * 返回前向缓存供 BPTT。
+ * @param training true 时启用 dropout
+ * @param rng 用于 dropout 的 RNG
  */
-export function forwardModel(model, sequence) {
-  const { hs, cs, caches, hLast } = lstmForward(model.lstm, sequence);
-  const redLogits = add(matmul(model.redHead.W, hLast), model.redHead.b);
+export function forwardModel(model, sequence, { training = false, rng = Math.random } = {}) {
+  const fwd = stackedForward(model.stack, sequence, {
+    training,
+    dropoutIn: model.dropoutInput,
+    dropoutHidden: model.dropoutHidden,
+    rng,
+  });
+
+  // 输出层 dropout
+  let hForHead = fwd.hLast;
+  let outputMask = null;
+  if (training && model.dropoutOutput > 0) {
+    outputMask = makeDropoutMask(hForHead.rows, hForHead.cols, model.dropoutOutput, rng);
+    hForHead = hadamard(hForHead, outputMask);
+  }
+
+  const redLogits = add(matmul(model.redHead.W, hForHead), model.redHead.b);
   const redProbs = sigmoid(redLogits);
-  const blueLogits = add(matmul(model.blueHead.W, hLast), model.blueHead.b);
+  const blueLogits = add(matmul(model.blueHead.W, hForHead), model.blueHead.b);
   const blueProbs = softmax(blueLogits);
+
   return {
-    hs, cs, caches, hLast,
+    stackFwd: fwd,
+    hLast: fwd.hLast,
+    hForHead,
+    outputMask,
     redLogits, redProbs,
     blueLogits, blueProbs,
   };
@@ -98,11 +129,11 @@ export function forwardModel(model, sequence) {
  * 计算 loss + 反向传播一次。返回 { loss, redLoss, blueLoss, grads }。
  *
  * grads 字典 keys:
- *   lstm.dW, lstm.dU, lstm.db,
+ *   stack.layers[l].dW/dU/db,
  *   redHead.dW, redHead.db, blueHead.dW, blueHead.db
  */
-export function lossAndGrads(model, sequence, target) {
-  const fwd = forwardModel(model, sequence);
+export function lossAndGrads(model, sequence, target, { rng = Math.random } = {}) {
+  const fwd = forwardModel(model, sequence, { training: true, rng });
   const T = sequence.length;
   const H = model.hiddenDim;
 
@@ -111,76 +142,89 @@ export function lossAndGrads(model, sequence, target) {
   const totalLoss = redLoss + BLUE_LOSS_WEIGHT * blueLoss;
 
   // 输出层反向
-  // dRedLogits = (sigmoid(redLogits) - redTarget) / RED_DIM
   const dRedLogits = sigmoidBCEBackward(fwd.redProbs, target.red);
   for (let i = 0; i < dRedLogits.data.length; i++) dRedLogits.data[i] /= RED_DIM;
 
   const dBlueLogits = softmaxCEBackward(fwd.blueProbs, target.blue);
   for (let i = 0; i < dBlueLogits.data.length; i++) dBlueLogits.data[i] *= BLUE_LOSS_WEIGHT;
 
-  // dRedHead.W = dRedLogits · h_T^T
-  const hLastT = transpose(fwd.hLast);
+  // dHead.W = dLogits · hForHead^T；db = dLogits
+  const hHeadT = transpose(fwd.hForHead);
   const grads = {
     redHead: {
-      dW: matmul(dRedLogits, hLastT),
+      dW: matmul(dRedLogits, hHeadT),
       db: makeMat(RED_DIM, 1),
     },
     blueHead: {
-      dW: matmul(dBlueLogits, hLastT),
+      dW: matmul(dBlueLogits, hHeadT),
       db: makeMat(BLUE_DIM, 1),
     },
   };
   for (let i = 0; i < dRedLogits.data.length; i++) grads.redHead.db.data[i] = dRedLogits.data[i];
   for (let i = 0; i < dBlueLogits.data.length; i++) grads.blueHead.db.data[i] = dBlueLogits.data[i];
 
-  // 上传到 hLast：dh_T = redHead.W^T · dRedLogits + blueHead.W^T · dBlueLogits
+  // dhForHead = redHead.W^T · dRedLogits + blueHead.W^T · dBlueLogits
   const dhFromRed = matmul(transpose(model.redHead.W), dRedLogits);
   const dhFromBlue = matmul(transpose(model.blueHead.W), dBlueLogits);
-  const dhLast = add(dhFromRed, dhFromBlue);
+  let dhForHead = add(dhFromRed, dhFromBlue);
 
-  // 把 dhLast 放到 dhFromAbove[T-1]，其他时间步为 0（只在最后一步监督）
+  // 反向 dropoutOutput：dhLast = mask ⊙ dhForHead
+  let dhLast = dhForHead;
+  if (fwd.outputMask) {
+    dhLast = hadamard(dhForHead, fwd.outputMask);
+  }
+
+  // 把 dhLast 注入到最后时间步；其余时间步给 0（因为只在最后一步监督）
   const dhFromAbove = new Array(T);
   for (let t = 0; t < T - 1; t++) dhFromAbove[t] = makeMat(H, 1);
   dhFromAbove[T - 1] = dhLast;
 
-  const { grads: lstmGrads } = lstmBackward(model.lstm, fwd.caches, dhFromAbove);
-  grads.lstm = { dW: lstmGrads.dW, dU: lstmGrads.dU, db: lstmGrads.db };
+  const { grads: stackGrads } = stackedBackward(model.stack, fwd.stackFwd, dhFromAbove);
+  grads.stack = stackGrads; // grads.stack[l] = { dW, dU, db }
 
   return { loss: totalLoss, redLoss, blueLoss, grads, fwd };
 }
 
-/** 把 grads / params 摊平为 Adam 期望的字典形式。 */
+/** 把 grads / params 摊平为 Adam 期望的字典形式（含多层 LSTM）。 */
 export function flattenParams(model) {
-  return {
-    "lstm.W": model.lstm.params.W,
-    "lstm.U": model.lstm.params.U,
-    "lstm.b": model.lstm.params.b,
-    "redHead.W": model.redHead.W,
-    "redHead.b": model.redHead.b,
-    "blueHead.W": model.blueHead.W,
-    "blueHead.b": model.blueHead.b,
-  };
+  const out = {};
+  for (let l = 0; l < model.numLayers; l++) {
+    out[`stack.${l}.W`] = model.stack.layers[l].params.W;
+    out[`stack.${l}.U`] = model.stack.layers[l].params.U;
+    out[`stack.${l}.b`] = model.stack.layers[l].params.b;
+  }
+  out["redHead.W"] = model.redHead.W;
+  out["redHead.b"] = model.redHead.b;
+  out["blueHead.W"] = model.blueHead.W;
+  out["blueHead.b"] = model.blueHead.b;
+  return out;
 }
 
 export function flattenGrads(g) {
-  return {
-    "lstm.W": g.lstm.dW,
-    "lstm.U": g.lstm.dU,
-    "lstm.b": g.lstm.db,
-    "redHead.W": g.redHead.dW,
-    "redHead.b": g.redHead.db,
-    "blueHead.W": g.blueHead.dW,
-    "blueHead.b": g.blueHead.db,
-  };
+  const out = {};
+  for (let l = 0; l < g.stack.length; l++) {
+    out[`stack.${l}.W`] = g.stack[l].dW;
+    out[`stack.${l}.U`] = g.stack[l].dU;
+    out[`stack.${l}.b`] = g.stack[l].db;
+  }
+  out["redHead.W"] = g.redHead.dW;
+  out["redHead.b"] = g.redHead.db;
+  out["blueHead.W"] = g.blueHead.dW;
+  out["blueHead.b"] = g.blueHead.db;
+  return out;
 }
 
 /** 序列化（用于训练后保存到 localStorage 或下载）。 */
 export function serializeModel(model) {
   const flat = (m) => ({ rows: m.rows, cols: m.cols, data: Array.from(m.data) });
   return {
-    type: "ssq-lstm-v1",
+    type: "ssq-lstm-v2",
     hiddenDim: model.hiddenDim,
-    lstm: serializeLSTM(model.lstm),
+    numLayers: model.numLayers,
+    dropoutInput: model.dropoutInput,
+    dropoutHidden: model.dropoutHidden,
+    dropoutOutput: model.dropoutOutput,
+    stack: serializeStack(model.stack),
     redHead: { W: flat(model.redHead.W), b: flat(model.redHead.b) },
     blueHead: { W: flat(model.blueHead.W), b: flat(model.blueHead.b) },
   };
@@ -188,9 +232,32 @@ export function serializeModel(model) {
 
 export function deserializeModel(obj) {
   const inflate = (m) => ({ rows: m.rows, cols: m.cols, data: new Float32Array(m.data) });
+  // v1 兼容：单层 lstm 字段
+  if (obj.type === "ssq-lstm-v1") {
+    // 把 v1 的 lstm 包装成单层 stack
+    const v1Stack = {
+      type: "stacked-lstm",
+      inputDim: obj.lstm.inputDim,
+      hiddenDim: obj.lstm.hiddenDim,
+      numLayers: 1,
+      layers: [obj.lstm],
+    };
+    return {
+      hiddenDim: obj.hiddenDim,
+      numLayers: 1,
+      dropoutInput: 0, dropoutHidden: 0, dropoutOutput: 0,
+      stack: deserializeStack(v1Stack),
+      redHead: { W: inflate(obj.redHead.W), b: inflate(obj.redHead.b) },
+      blueHead: { W: inflate(obj.blueHead.W), b: inflate(obj.blueHead.b) },
+    };
+  }
   return {
     hiddenDim: obj.hiddenDim,
-    lstm: deserializeLSTM(obj.lstm),
+    numLayers: obj.numLayers,
+    dropoutInput: obj.dropoutInput || 0,
+    dropoutHidden: obj.dropoutHidden || 0,
+    dropoutOutput: obj.dropoutOutput || 0,
+    stack: deserializeStack(obj.stack),
     redHead: { W: inflate(obj.redHead.W), b: inflate(obj.redHead.b) },
     blueHead: { W: inflate(obj.blueHead.W), b: inflate(obj.blueHead.b) },
   };

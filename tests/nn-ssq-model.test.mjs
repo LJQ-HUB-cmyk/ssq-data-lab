@@ -79,9 +79,9 @@ test("lossAndGrads produces non-negative loss and well-shaped gradients", () => 
   assert.ok(out.loss > 0);
   assert.ok(out.redLoss >= 0);
   assert.ok(out.blueLoss >= 0);
-  // 形状
-  assert.equal(out.grads.lstm.dW.rows, 4 * 8);
-  assert.equal(out.grads.lstm.dW.cols, FEATURE_DIM);
+  // 形状（多层 stack 的第 0 层）
+  assert.equal(out.grads.stack[0].dW.rows, 4 * 8);
+  assert.equal(out.grads.stack[0].dW.cols, FEATURE_DIM);
   assert.equal(out.grads.redHead.dW.rows, RED_DIM);
   assert.equal(out.grads.redHead.dW.cols, 8);
 });
@@ -92,8 +92,8 @@ test("model serialization round-trips", () => {
   const ser = serializeModel(model);
   const restored = deserializeModel(JSON.parse(JSON.stringify(ser)));
   // 比较参数
-  for (let i = 0; i < model.lstm.params.W.data.length; i++) {
-    assert.equal(restored.lstm.params.W.data[i], model.lstm.params.W.data[i]);
+  for (let i = 0; i < model.stack.layers[0].params.W.data.length; i++) {
+    assert.equal(restored.stack.layers[0].params.W.data[i], model.stack.layers[0].params.W.data[i]);
   }
   for (let i = 0; i < model.redHead.W.data.length; i++) {
     assert.equal(restored.redHead.W.data[i], model.redHead.W.data[i]);

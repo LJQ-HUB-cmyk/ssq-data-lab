@@ -287,3 +287,29 @@ export function hasNaN(M) {
   for (let i = 0; i < M.data.length; i++) if (!isFinite(M.data[i])) return true;
   return false;
 }
+
+
+/* =========================================================
+   Dropout（inverted dropout）
+   - 训练时：以概率 p 把元素置 0；其余乘 1/(1-p) 保持期望不变
+   - 推理时：恒等映射（无操作）
+   - 反向：与 mask 同位置置 0、其余仍乘 1/(1-p)
+   ========================================================= */
+export function makeDropoutMask(rows, cols, p, rng = Math.random) {
+  // p 是丢弃概率
+  const m = makeMat(rows, cols);
+  if (p <= 0) {
+    for (let i = 0; i < m.data.length; i++) m.data[i] = 1;
+    return m;
+  }
+  if (p >= 1) {
+    return m; // 全 0（极端情况，正常不会发生）
+  }
+  const scale = 1 / (1 - p);
+  for (let i = 0; i < m.data.length; i++) m.data[i] = rng() < p ? 0 : scale;
+  return m;
+}
+
+export function applyDropout(x, mask, dst = null) {
+  return hadamard(x, mask, dst);
+}
