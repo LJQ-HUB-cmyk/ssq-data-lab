@@ -20,7 +20,8 @@ function readVar(name, fallback) {
 
 // 走势图：横轴=号码，纵轴=期号（最近在最下方）
 // 命中渲染为彩色实心球，未命中渲染为淡点；连线展示当期"走向"
-export function renderTrend(container, draws, { size, kind = "red" } = {}) {
+// 在数据行下方追加 4 行统计：出现次数 / 平均遗漏 / 最大遗漏 / 当前遗漏（500.com 标准走势版式）。
+export function renderTrend(container, draws, { size, kind = "red", stats = null } = {}) {
   container.innerHTML = "";
   const cellW = 24;
   const cellH = 22;
@@ -28,8 +29,17 @@ export function renderTrend(container, draws, { size, kind = "red" } = {}) {
   const padTop = 30;
   const padRight = 16;
   const padBottom = 14;
+  // 底部统计行
+  const statRows = stats ? [
+    { label: "出现次数", key: "freq" },
+    { label: "平均遗漏", key: "avgMiss" },
+    { label: "最大遗漏", key: "maxMiss" },
+    { label: "当前遗漏", key: "currentMiss" },
+  ] : [];
+  const statBandH = statRows.length ? statRows.length * cellH + 18 : 0;
+
   const W = padLeft + cellW * size + padRight;
-  const H = padTop + cellH * draws.length + padBottom;
+  const H = padTop + cellH * draws.length + statBandH + padBottom;
 
   const svg = el("svg", {
     class: "trend-svg",
@@ -159,6 +169,59 @@ export function renderTrend(container, draws, { size, kind = "red" } = {}) {
       }
     }
   });
+
+  // 底部统计行：500.com 走势图标准的"出现次数 / 平均遗漏 / 最大遗漏 / 当前遗漏"
+  if (stats && statRows.length) {
+    const bandTop = padTop + cellH * draws.length + 8;
+    svg.appendChild(el("line", {
+      x1: 0, x2: W, y1: bandTop - 4, y2: bandTop - 4,
+      stroke: "rgba(255,255,255,.10)",
+    }));
+    statRows.forEach((row, idx) => {
+      const y = bandTop + idx * cellH;
+      const yMid = y + cellH / 2;
+      const label = el("text", {
+        x: padLeft - 10, y: yMid + 3.5,
+        "text-anchor": "end",
+        "font-size": "10",
+        "font-family": "JetBrains Mono, ui-monospace, Menlo, monospace",
+        fill: "rgba(255,255,255,.62)",
+        "font-weight": "600",
+      });
+      label.textContent = row.label;
+      svg.appendChild(label);
+      if (idx % 2 === 0) {
+        svg.appendChild(el("rect", {
+          x: 0, y, width: W, height: cellH,
+          fill: "rgba(255,255,255,.018)",
+        }));
+      }
+      for (let n = 1; n <= size; n++) {
+        const cx = padLeft + (n - 0.5) * cellW;
+        const v = stats[n] ? stats[n][row.key] : 0;
+        const display = row.key === "avgMiss" ? Number(v).toFixed(1) : Math.round(v);
+        let fill = "rgba(255,255,255,.72)";
+        let weight = "500";
+        if (row.key === "currentMiss" && v >= 10) {
+          fill = accent;
+          weight = "700";
+        } else if (row.key === "maxMiss" && v >= 20) {
+          fill = "rgba(255,255,255,.92)";
+          weight = "600";
+        }
+        const t = el("text", {
+          x: cx, y: yMid + 3.4,
+          "text-anchor": "middle",
+          "font-size": "9.5",
+          "font-family": "JetBrains Mono, ui-monospace, Menlo, monospace",
+          fill,
+          "font-weight": weight,
+        });
+        t.textContent = String(display);
+        svg.appendChild(t);
+      }
+    });
+  }
 
   container.appendChild(svg);
 }

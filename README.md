@@ -3,8 +3,9 @@
 [![GitHub Pages](https://img.shields.io/badge/demo-github%20pages-brightgreen?style=flat-square&logo=github)](https://wanghao137.github.io/ssq-data-lab/)
 [![Cloudflare Pages](https://img.shields.io/badge/镜像-cloudflare%20pages-f38020?style=flat-square&logo=cloudflare&logoColor=white)](https://ssq-data-lab.pages.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-65%20passed-success?style=flat-square)](./tests)
+[![Tests](https://img.shields.io/badge/tests-155%20passed-success?style=flat-square)](./tests)
 [![No build step](https://img.shields.io/badge/build-zero--config-informational?style=flat-square)](./index.html)
+[![PWA](https://img.shields.io/badge/PWA-offline%20ready-635bff?style=flat-square)](./manifest.webmanifest)
 
 [English](./README.en.md) · **中文**
 
@@ -25,17 +26,29 @@
 ## 特性
 
 ### 数据与可视化
+- **开奖倒计时**：根据周二/四/日 21:15 的官方开奖规则，实时倒数下期开奖与销售截止
 - **走势图**：近 30/50/100 期红蓝点阵，球体加高光、当期 6 球低饱和连线
+- **走势图右侧 4 列**：出现次数 / 平均遗漏 / 最大遗漏 / 当前遗漏（500.com 标准走势版式）
 - **冷热 / 遗漏分析**：频次柱状图 + 距上次出现的期数
 - **分布分析**：奇偶比、大小比、质合比、012 路、三区比、AC 值、和值、跨度
+- **时序演化**：和值/跨度/AC/奇偶/蓝球随期数走势 + 移动均线（直观证明无规律）
+- **红球同伴号 / 极端共现对**：3450 期 33×33 共现矩阵 + lift 偏离独立基线分析
 - **卡方拟合优度检验**：实时 p 值，验证「均匀分布」假设（差异化功能）
 
 ### 工具
 - **加权随机生成器**：热 / 冷 / 混合 / 均匀策略 × 和值 / 奇偶 / 跨度 / 分区 / AC / 连号约束
+- **高级采样器**（4 个引擎，全部带可重现种子 + 实时诊断）：
+    - `Bayes + DPP`：Beta-Binomial 共轭先验估计号码概率，行列式点过程贪心 MAP 选号，自动多样化
+    - `Thompson Sampling`：每注从 Beta 后验独立抽 p̂ 做权重，反映"小样本不确定性"
+    - `MCMC（Metropolis-Hastings）`：多链组合空间采样，提供接受率 / ESS / Gelman-Rubin R̂ 收敛诊断
+    - `经典加权随机`：保留原行为，作为基线
+- **采样质量度量**：JS 距离 / Wasserstein-1 与贝叶斯后验对比，0–100 综合质量分
 - **胆码 / 排除**：胆码必含、排除红蓝球、避开上一期红球
 - **低撞号 + 分散覆盖**：多注之间降低撞号风险（不提高单注命中率）
 - **胆拖 / 复式注数试算**：实时 C(n, k) 与金额
 - **号码体检**：任意一注红蓝号码，输出 10 项分布指标 + 历史完全重合查询
+
+> **关于这些算法**：它们是**统计学上更严谨的随机采样器**，不是预测器。在独立同分布的彩票模型下，任何采样器的中奖期望概率都等于均匀随机（一等奖 ≈ 1 / 17,721,088）。算法的价值是：(1) 让多注之间天然分散，降低撞号风险；(2) 用诊断指标（ESS / R̂）让采样过程透明可验证；(3) 用种子机制实现完全可复现。
 
 ### 数据
 - **开奖记录**：搜索（期号 / 日期 / 红球组合 / 蓝 NN）+ CSV 导出
@@ -46,8 +59,10 @@
 - **响应式**：从 360px 手机到 4K 显示器自适应
 - **键盘可访问**：Tab / 方向键导航，跳到主要内容链接，ARIA tabpanel
 - **零构建零依赖**：纯 ES Modules + SVG，加载即用
+- **PWA**：manifest + service worker，安装到桌面、离线可用
 - **离线兜底**：双击 `index.html` 也能跑（通过 `data/draws.js` 内置兜底数据）
 - **打印样式**：可直接打印任意分析页
+- **SEO 完备**：sitemap.xml / robots.txt / WebApplication + Dataset structured data
 
 **技术栈**：原生 ES Modules + SVG，零构建；Python stdlib 抓取；Node.js / unittest 测试。**无任何 runtime 依赖**。
 
@@ -97,14 +112,27 @@ ssq-data-lab/
 │       ├── chi-square.js       卡方检验 + 不完全伽马 p 值
 │       ├── combinatorics.js    胆拖 / 复式 / C(n,k)
 │       ├── trend.js            走势矩阵
-│       ├── trend-chart.js      走势点阵 SVG
+│       ├── trend-chart.js      走势点阵 SVG（含右侧统计列）
+│       ├── miss-stats.js       出现次数 / 平均遗漏 / 最大遗漏 / 当前遗漏
+│       ├── cooccurrence.js     33×33 共现矩阵 / lift / topPartners
+│       ├── timeseries.js       指标时序折线 + 移动均线
+│       ├── countdown.js        下期开奖倒计时（中国时区）
 │       ├── chart.js            频次柱状图 SVG
-│       ├── generator.js        加权采样
+│       ├── generator.js        加权采样（经典引擎）
+│       ├── rng.js              可重现 PRNG (xmur3 + mulberry32) + Gamma/Beta 采样器
+│       ├── bayes.js            Beta-Binomial 共轭先验 / Thompson 权重
+│       ├── dpp.js              k-DPP 行列式点过程 greedy MAP（多样化采样）
+│       ├── mcmc.js             Metropolis-Hastings + ESS + Gelman-Rubin
+│       ├── distance.js         KL / JS / Wasserstein-1 / 质量分
+│       ├── advanced-sampler.js 高级采样器编排（4 引擎统一接口）
 │       ├── ui.js               DOM 渲染 / 主题 / Toast
 │       └── utils.js            $ / pad2 / clamp / ...
 ├── data/
 │   ├── draws.json              3450+ 期主数据
 │   └── draws.js                window.__SSQ_DATA__ 等价副本（file:// 兜底）
+├── manifest.webmanifest        PWA manifest
+├── sw.js                       service worker（cache-first + SWR）
+├── sitemap.xml / robots.txt    SEO
 ├── tools/
 │   ├── parse_ssq.py            txt / xlsx → draws.json
 │   ├── update_ssq.py           500.com 抓取 + 合并

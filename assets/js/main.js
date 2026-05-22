@@ -12,6 +12,7 @@ import {
 import { renderBars } from "./chart.js";
 import { renderTrend } from "./trend-chart.js";
 import { generateTickets } from "./generator.js";
+import { generateAdvanced } from "./advanced-sampler.js";
 import {
   oddEvenRatio,
   bigSmallRatio,
@@ -27,6 +28,22 @@ import {
 import { redChi, blueChi, chiSquaredPValue } from "./chi-square.js";
 import { danTuoTickets, complexTickets, combinations, priceOf } from "./combinatorics.js";
 import { buildTrendMatrix } from "./trend.js";
+import { missStats } from "./miss-stats.js";
+import {
+  buildCooccurrenceMatrix,
+  topPartners,
+  liftOf,
+  extremePairs,
+  INDEPENDENT_LIFT_BASELINE,
+} from "./cooccurrence.js";
+import { renderTimeSeries } from "./timeseries.js";
+import {
+  nextDrawTime,
+  saleCutoffOf,
+  diffDuration,
+  formatChinaTime,
+  nextIssueOf,
+} from "./countdown.js";
 import {
   setupTabs,
   setupTheme,
@@ -92,9 +109,14 @@ function renderOverviewAndInsight() {
 
 function renderTrendPanel() {
   const win = Number($("#trendWindow").value || 50);
+  const showStats = $("#trendShowStats")?.checked !== false;
   const rows = buildTrendMatrix(state.draws, win);
-  renderTrend($("#trendRed"), rows, { size: RED_MAX, kind: "red" });
-  renderTrend($("#trendBlue"), rows, { size: BLUE_MAX, kind: "blue" });
+  // 统计是基于全量数据还是当前窗口？业界惯例是基于当前可视范围。
+  const windowedDraws = state.draws.slice(-win);
+  const redStats = showStats ? missStats(windowedDraws, RED_MAX, "reds") : null;
+  const blueStats = showStats ? missStats(windowedDraws, BLUE_MAX, "blue") : null;
+  renderTrend($("#trendRed"), rows, { size: RED_MAX, kind: "red", stats: redStats });
+  renderTrend($("#trendBlue"), rows, { size: BLUE_MAX, kind: "blue", stats: blueStats });
 }
 
 function renderRatioList(el, entries, top = 8) {
@@ -138,6 +160,70 @@ function renderDistributionPanel() {
   const spans = draws.map((d) => spanOf(d.reds));
   drawHistogram($("#chartSum"), sums, 21, 183);
   drawHistogram($("#chartSpan"), spans, 5, 32);
+
+  renderTimeSeriesPanel();
+  renderCooccurrencePanel();
+}
+
+function renderTimeSeriesPanel() {
+  const container = $("#tsChart");
+  if (!container) return;
+  const kind = $("#tsKind")?.value || "sum";
+  const winSel = $("#tsWindow")?.value || "300";
+  const ma = clamp(Number($("#tsMA")?.value || 30), 1, 200);
+  const len = winSel === "all" ? state.draws.length : Math.min(state.draws.length, Number(winSel));
+  const slice = state.draws.slice(-len);
+  renderTimeSeries(container, slice, kind, { window: ma });
+}
+
+function renderCooccurrencePanel() {
+  const container = $("#partnerList");
+  const extreme = $("#extremePairs");
+  if (!container || !extreme) return;
+  if (!state.coMatrix) {
+    state.coMatrix = buildCooccurrenceMatrix(state.draws);
+  }
+  const m = state.coMatrix;
+  const num = clamp(Number($("#partnerNum")?.value || 6), 1, 33);
+  const k = clamp(Number($("#partnerK")?.value || 8), 3, 32);
+  const partners = topPartners(m, num, k);
+  container.innerHTML = "";
+  for (const [n, count] of partners) {
+    const lift = liftOf(m, state.freqAllRed, state.draws.length, num, n);
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <span class="ball red" style="width:26px;height:26px;font-size:11px;box-shadow:none">${pad2(n)}</span>
+      <span class="muted" style="margin-left:auto; font-family:var(--mono); font-size:12px">
+        ×&nbsp;<strong style="color:var(--text)">${count}</strong>
+        &nbsp;·&nbsp; lift <strong style="color:${liftColor(lift)}">${lift.toFixed(2)}</strong>
+      </span>
+    `;
+    container.appendChild(li);
+  }
+
+  // 极端对
+  const ex = extremePairs(m, state.freqAllRed, state.draws.length, 8);
+  extreme.innerHTML = "";
+  for (const p of ex) {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <span class="ball red" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(p.a)}</span>
+      <span class="ball red" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(p.b)}</span>
+      <span class="muted" style="margin-left:auto; font-family:var(--mono); font-size:12px">
+        ×&nbsp;${p.count} · lift <strong style="color:${liftColor(p.lift)}">${p.lift.toFixed(2)}</strong>
+      </span>
+    `;
+    extreme.appendChild(li);
+  }
+}
+
+function liftColor(lift) {
+  // 接近独立基线（≈0.86）= 中性；偏离越远越黄
+  const base = INDEPENDENT_LIFT_BASELINE;
+  const dev = Math.abs(lift - base);
+  if (dev < 0.05) return "var(--acid)";
+  if (dev < 0.15) return "var(--gold)";
+  return "var(--red-2)";
 }
 
 function drawHistogram(container, values, min, max) {
@@ -333,40 +419,149 @@ function onGenerate() {
   const cfg = readGeneratorConfig();
   const lastDraw = state.draws[state.draws.length - 1];
   const avoidLast = cfg.avoidLast && lastDraw ? lastDraw.reds : [];
+  const engine = $("#engine")?.value || "legacy";
+  const seed = $("#seedInput")?.value?.trim() || null;
+
   try {
-    const result = generateTickets({
-      freqR, freqB,
-      strategyRed: cfg.strategyRed,
-      strategyBlue: cfg.strategyBlue,
-      alpha: cfg.alpha,
-      constraints: cfg.constraints,
-      count: cfg.count,
-      optimize: cfg.optimize,
-      includeRed: cfg.includeRed,
-      excludeRed: cfg.excludeRed,
-      excludeBlue: cfg.excludeBlue,
-      avoidLast,
-    });
-    state.lastTickets = result.tickets;
-    renderTickets(result.tickets, { tries: result.tries, failureReasons: result.failureReasons });
-    $("#btnCopyAll").disabled = result.tickets.length === 0;
-    const parsed = [
-      cfg.includeRed.length ? `胆码 ${cfg.includeRed.length}` : "",
-      cfg.excludeRed.length ? `排除红 ${cfg.excludeRed.length}` : "",
-      cfg.excludeBlue.length ? `排除蓝 ${cfg.excludeBlue.length}` : "",
-      cfg.optimize === "diverse" ? "低撞号/分散覆盖已启用" : "",
-    ].filter(Boolean).join(" · ");
-    setGenDiagnostics(
-      `已生成 ${result.tickets.length}/${cfg.count} 注 · ${priceOf(result.tickets.length)} 元 · 尝试 ${result.tries} 次` +
-      (parsed ? ` · ${parsed}` : "") +
-      (avoidLast.length ? ` · 已避开上一期 ${avoidLast.length} 个红球` : "")
-    );
+    if (engine === "legacy") {
+      runLegacyGenerator({ freqR, freqB, cfg, avoidLast });
+    } else {
+      runAdvancedGenerator({
+        freqR, freqB,
+        totalDraws: recent.length,
+        cfg, avoidLast, engine, seed,
+      });
+    }
   } catch (e) {
     state.lastTickets = [];
     $("#btnCopyAll").disabled = true;
     showGenError(e.message || String(e));
     setGenDiagnostics("");
+    renderSamplerDiagnostics(null);
   }
+}
+
+function runLegacyGenerator({ freqR, freqB, cfg, avoidLast }) {
+  const result = generateTickets({
+    freqR, freqB,
+    strategyRed: cfg.strategyRed,
+    strategyBlue: cfg.strategyBlue,
+    alpha: cfg.alpha,
+    constraints: cfg.constraints,
+    count: cfg.count,
+    optimize: cfg.optimize,
+    includeRed: cfg.includeRed,
+    excludeRed: cfg.excludeRed,
+    excludeBlue: cfg.excludeBlue,
+    avoidLast,
+  });
+  state.lastTickets = result.tickets;
+  renderTickets(result.tickets, { tries: result.tries, failureReasons: result.failureReasons });
+  $("#btnCopyAll").disabled = result.tickets.length === 0;
+  const parsed = [
+    cfg.includeRed.length ? `胆码 ${cfg.includeRed.length}` : "",
+    cfg.excludeRed.length ? `排除红 ${cfg.excludeRed.length}` : "",
+    cfg.excludeBlue.length ? `排除蓝 ${cfg.excludeBlue.length}` : "",
+    cfg.optimize === "diverse" ? "低撞号/分散覆盖已启用" : "",
+  ].filter(Boolean).join(" · ");
+  setGenDiagnostics(
+    `经典引擎 · 已生成 ${result.tickets.length}/${cfg.count} 注 · ${priceOf(result.tickets.length)} 元 · 尝试 ${result.tries} 次` +
+    (parsed ? ` · ${parsed}` : "") +
+    (avoidLast.length ? ` · 已避开上一期 ${avoidLast.length} 个红球` : "")
+  );
+  renderSamplerDiagnostics(null);
+}
+
+function runAdvancedGenerator({ freqR, freqB, totalDraws, cfg, avoidLast, engine, seed }) {
+  const result = generateAdvanced({
+    freqR, freqB, totalDraws,
+    method: engine,
+    count: cfg.count,
+    constraints: cfg.constraints,
+    includeRed: cfg.includeRed,
+    excludeRed: cfg.excludeRed,
+    excludeBlue: cfg.excludeBlue,
+    avoidLast,
+    seed,
+  });
+  state.lastTickets = result.tickets;
+  renderTickets(result.tickets, {
+    tries: result.diagnostics.tries || 0,
+    failureReasons: result.diagnostics.failureReasons || {},
+  });
+  $("#btnCopyAll").disabled = result.tickets.length === 0;
+  setGenDiagnostics(
+    `${result.diagnostics.samplerLabel || engine} · 已生成 ${result.tickets.length}/${cfg.count} 注 · ${priceOf(result.tickets.length)} 元`
+  );
+  renderSamplerDiagnostics(result.diagnostics);
+}
+
+function renderSamplerDiagnostics(diag) {
+  const el = $("#samplerDiag");
+  if (!el) return;
+  if (!diag) {
+    el.style.display = "none";
+    el.innerHTML = "";
+    return;
+  }
+  el.style.display = "";
+
+  const score = diag.qualityScore;
+  const scoreColor = score >= 80 ? "var(--acid)" : score >= 60 ? "var(--gold)" : "var(--red-2)";
+  const items = [];
+  items.push(`<div class="diag-line"><span>采样器</span><strong class="mono">${escape(diag.samplerLabel || diag.method)}</strong></div>`);
+  items.push(`<div class="diag-line"><span>种子（可复制重现）</span><strong class="mono" title="点击复制" id="diagSeed">${escape(diag.seed)}</strong></div>`);
+  items.push(`<div class="diag-line"><span>候选池大小</span><strong class="mono">${diag.poolSize ?? "—"}${diag.pinned?.length ? ` · 胆码 ${diag.pinned.length}` : ""}</strong></div>`);
+  items.push(`<div class="diag-line"><span>分布质量分（vs 后验）</span><strong class="mono" style="color:${scoreColor}">${score}/100</strong></div>`);
+  items.push(`<div class="diag-line"><span>JS 距离</span><strong class="mono">${diag.jsDistance.toFixed(4)}</strong></div>`);
+  items.push(`<div class="diag-line"><span>Wasserstein-1</span><strong class="mono">${diag.wasserstein.toFixed(3)}</strong></div>`);
+  if (diag.acceptRate != null) {
+    const ar = diag.acceptRate;
+    const arColor = ar >= 0.2 && ar <= 0.5 ? "var(--acid)" : "var(--gold)";
+    items.push(`<div class="diag-line"><span>MCMC 接受率</span><strong class="mono" style="color:${arColor}">${(ar * 100).toFixed(1)}%</strong> <span class="muted fine">理想区间 20%–50%</span></div>`);
+  }
+  if (diag.ess != null) {
+    items.push(`<div class="diag-line"><span>有效样本数 ESS</span><strong class="mono">${Math.round(diag.ess)}</strong> · τ_int <span class="mono">${diag.tauInt?.toFixed(2)}</span></div>`);
+  }
+  if (diag.rHat != null && Number.isFinite(diag.rHat)) {
+    const rOk = diag.rHat < 1.1;
+    const rColor = rOk ? "var(--acid)" : diag.rHat < 1.2 ? "var(--gold)" : "var(--red-2)";
+    items.push(`<div class="diag-line"><span>Gelman-Rubin R̂</span><strong class="mono" style="color:${rColor}">${diag.rHat.toFixed(3)}</strong> <span class="muted fine">&lt; 1.1 为收敛</span></div>`);
+  }
+  if (diag.tries) {
+    items.push(`<div class="diag-line"><span>采样尝试</span><strong class="mono">${diag.tries}</strong></div>`);
+  }
+
+  el.innerHTML = `
+    <div class="diag-head">
+      <span class="diag-tag">采样诊断</span>
+      <span class="muted fine">所有指标在浏览器本地实时计算</span>
+    </div>
+    <div class="diag-grid">${items.join("")}</div>
+    <div class="callout" style="margin-top:12px">
+      <div class="callout-title">如何理解</div>
+      <div class="callout-body">
+        <strong>质量分</strong> 衡量采样输出的频率分布与贝叶斯后验的接近程度——满分代表"采样器准确反映了你设定的目标分布"。<br/>
+        <strong>它和"中奖概率无关"</strong>。在独立同分布的彩票模型下，任何采样器的中奖期望都等于均匀随机：${(1 / 17721088).toExponential(2)}（一等奖 1/17,721,088）。
+      </div>
+    </div>
+  `;
+
+  const seedEl = $("#diagSeed");
+  if (seedEl) {
+    seedEl.style.cursor = "copy";
+    seedEl.addEventListener("click", async () => {
+      await copyToClipboard(diag.seed);
+      toast("种子已复制：粘到「种子」输入框可重现该结果");
+    });
+  }
+}
+
+function escape(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 async function onCopyAll() {
@@ -390,6 +585,7 @@ async function onRefresh() {
     state.meta = meta;
     state.draws = draws;
     state.winSize = readWinSize();
+    state.coMatrix = null; // 重新构建
     computeStats();
     renderAll();
     toast(`已刷新：${draws.length} 期`);
@@ -414,6 +610,14 @@ function bindInteractions() {
     renderAll();
   });
   $("#trendWindow").addEventListener("change", renderTrendPanel);
+  $("#trendShowStats")?.addEventListener("change", renderTrendPanel);
+  $("#tsKind")?.addEventListener("change", renderTimeSeriesPanel);
+  $("#tsWindow")?.addEventListener("change", renderTimeSeriesPanel);
+  $("#tsMA")?.addEventListener("input", renderTimeSeriesPanel);
+  $("#btnPartner")?.addEventListener("click", renderCooccurrencePanel);
+  $("#partnerNum")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") renderCooccurrencePanel();
+  });
   $("#btnGen").addEventListener("click", onGenerate);
   $("#btnCopyAll").addEventListener("click", onCopyAll);
   $("#btnSearch").addEventListener("click", onSearch);
@@ -483,9 +687,47 @@ async function main() {
     renderAll();
     bindInteractions();
     showDataSourceBanner(source, fetchError);
+    startCountdown();
   } catch (err) {
     showLoadError(String(err.message || err));
   }
+}
+
+let countdownTimer = null;
+function startCountdown() {
+  const tick = () => {
+    const now = new Date();
+    const target = nextDrawTime(now);
+    if (!target) return;
+    const diff = diffDuration(target, now);
+    const setText = (id, v) => {
+      const el = $(id);
+      if (el) el.textContent = String(v).padStart(2, "0");
+    };
+    setText("#cdDays", diff.days);
+    setText("#cdHours", diff.hours);
+    setText("#cdMinutes", diff.minutes);
+    setText("#cdSeconds", diff.seconds);
+
+    const cutoff = saleCutoffOf(target);
+    const beforeCutoff = now.getTime() < cutoff.getTime();
+    const latest = state.draws[state.draws.length - 1];
+    const nextIssue = latest ? nextIssueOf(latest.issue, target) : null;
+    const labelEl = $("#countdownLabel");
+    if (labelEl) labelEl.textContent = nextIssue ? `第 ${nextIssue} 期` : "下期";
+
+    const metaEl = $("#countdownMeta");
+    if (metaEl) {
+      metaEl.innerHTML = `开奖时间：<strong class="mono">${formatChinaTime(target)}</strong> · ${
+        beforeCutoff
+          ? `投注截止：<strong class="mono">${formatChinaTime(cutoff).slice(11)}</strong>`
+          : `<span style="color:var(--gold)">本期投注已截止，等待开奖</span>`
+      }`;
+    }
+  };
+  tick();
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(tick, 1000);
 }
 
 window.addEventListener("DOMContentLoaded", main);
