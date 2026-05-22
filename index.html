@@ -104,6 +104,7 @@
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="trend">走势图</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="insight">冷热 · 遗漏</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="distribution">分布</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="lstm">LSTM 预测</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="generator">生成器</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="tools">胆拖工具</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="science">科学态度</button>
@@ -420,6 +421,79 @@
             <div class="card-title">最偏离独立的对 <span class="card-num">extreme pairs</span></div>
             <div id="extremePairs" class="rank"></div>
             <div class="hint">lift = P(同期) / [P(a)·P(b)]；理论独立基线约 0.86。偏离基线最多的若干对仅是样本噪声的极端值。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== LSTM 预测 ========== -->
+      <section class="panel" id="panel-lstm" data-panel="lstm" role="tabpanel">
+        <div class="panel-header">
+          <h2>神经网络预测 · LSTM</h2>
+          <span class="meta">E · Sequence Modeling</span>
+        </div>
+
+        <div class="panel-grid">
+          <div class="card span-full">
+            <div class="card-title">模型 <span class="card-num">architecture</span></div>
+            <div class="row">
+              <label class="field">
+                <span>序列长度 T</span>
+                <input id="lstmSeqLen" type="number" min="5" max="50" value="15" />
+              </label>
+              <label class="field">
+                <span>隐藏维度 H</span>
+                <input id="lstmHidden" type="number" min="16" max="256" value="64" />
+              </label>
+              <label class="field">
+                <span>训练 / 验证</span>
+                <input id="lstmSplit" type="number" min="0.5" max="0.95" step="0.05" value="0.85" />
+              </label>
+              <label class="field">
+                <span>学习率</span>
+                <input id="lstmLr" type="number" min="0.0001" max="0.1" step="0.0001" value="0.003" />
+              </label>
+              <label class="field">
+                <span>Epochs</span>
+                <input id="lstmEpochs" type="number" min="1" max="100" value="20" />
+              </label>
+              <label class="field">
+                <span>Batch</span>
+                <input id="lstmBatch" type="number" min="4" max="128" value="32" />
+              </label>
+              <label class="field">
+                <span>种子</span>
+                <input id="lstmSeed" type="text" placeholder="留空=随机" />
+              </label>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <button id="btnLstmTrain" class="btn primary" type="button">开始训练</button>
+              <button id="btnLstmStop" class="btn ghost" type="button" disabled>停止</button>
+              <button id="btnLstmPredict" class="btn" type="button" disabled>预测下一期</button>
+              <button id="btnLstmBacktest" class="btn ghost" type="button" disabled>Walk-forward 回测</button>
+              <button id="btnLstmSave" class="btn ghost" type="button" disabled>保存模型</button>
+              <button id="btnLstmLoad" class="btn ghost" type="button">加载模型</button>
+            </div>
+            <div class="hint">完整 LSTM 在浏览器本地训练（纯手写，零依赖）。约 300 期数据 + H=64，单核约 30 秒一个 epoch。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">训练进度 <span class="card-num">live</span></div>
+            <div id="lstmStatus" class="lstm-status">就绪：点击「开始训练」</div>
+            <div id="lstmProgressWrap" class="lstm-progress" aria-hidden="true">
+              <div id="lstmProgressBar" class="lstm-progress-bar"></div>
+            </div>
+            <div id="lstmCurves" class="lstm-curves"></div>
+            <div id="lstmMetrics" class="diag-grid" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card span-full" id="lstmPredictionCard" style="display:none">
+            <div class="card-title">下一期预测 <span class="card-num">prediction</span></div>
+            <div id="lstmPredictionBody"></div>
+          </div>
+
+          <div class="card span-full" id="lstmBacktestCard" style="display:none">
+            <div class="card-title">Walk-forward 回测 <span class="card-num">backtest</span></div>
+            <div id="lstmBacktestBody"></div>
           </div>
         </div>
       </section>

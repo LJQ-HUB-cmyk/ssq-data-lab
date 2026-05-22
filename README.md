@@ -3,9 +3,10 @@
 [![GitHub Pages](https://img.shields.io/badge/demo-github%20pages-brightgreen?style=flat-square&logo=github)](https://wanghao137.github.io/ssq-data-lab/)
 [![Cloudflare Pages](https://img.shields.io/badge/镜像-cloudflare%20pages-f38020?style=flat-square&logo=cloudflare&logoColor=white)](https://ssq-data-lab.pages.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-155%20passed-success?style=flat-square)](./tests)
+[![Tests](https://img.shields.io/badge/tests-188%20passed-success?style=flat-square)](./tests)
 [![No build step](https://img.shields.io/badge/build-zero--config-informational?style=flat-square)](./index.html)
 [![PWA](https://img.shields.io/badge/PWA-offline%20ready-635bff?style=flat-square)](./manifest.webmanifest)
+[![LSTM](https://img.shields.io/badge/LSTM-from--scratch-ff4a6b?style=flat-square)](./assets/js/nn-lstm.js)
 
 [English](./README.en.md) · **中文**
 
@@ -42,13 +43,19 @@
     - `Thompson Sampling`：每注从 Beta 后验独立抽 p̂ 做权重，反映"小样本不确定性"
     - `MCMC（Metropolis-Hastings）`：多链组合空间采样，提供接受率 / ESS / Gelman-Rubin R̂ 收敛诊断
     - `经典加权随机`：保留原行为，作为基线
+- **LSTM 神经网络预测**（纯手写，零依赖）：
+    - 单层 LSTM (input 49 → hidden 64) + 红球 sigmoid 多标签头 + 蓝球 softmax 头
+    - Adam 优化器 + 梯度裁剪 + Xavier/Orthogonal 初始化 + AdamW weight decay
+    - 在浏览器本地训练，~30s/epoch（300 期 × H=64）
+    - **完整 walk-forward 回测**：与均匀随机 / 频率 / 贝叶斯后验 baseline 并排对比
+    - **梯度检查测试**：解析梯度与中心差分数值梯度对比，相对误差 < 5e-3
 - **采样质量度量**：JS 距离 / Wasserstein-1 与贝叶斯后验对比，0–100 综合质量分
 - **胆码 / 排除**：胆码必含、排除红蓝球、避开上一期红球
 - **低撞号 + 分散覆盖**：多注之间降低撞号风险（不提高单注命中率）
 - **胆拖 / 复式注数试算**：实时 C(n, k) 与金额
 - **号码体检**：任意一注红蓝号码，输出 10 项分布指标 + 历史完全重合查询
 
-> **关于这些算法**：它们是**统计学上更严谨的随机采样器**，不是预测器。在独立同分布的彩票模型下，任何采样器的中奖期望概率都等于均匀随机（一等奖 ≈ 1 / 17,721,088）。算法的价值是：(1) 让多注之间天然分散，降低撞号风险；(2) 用诊断指标（ESS / R̂）让采样过程透明可验证；(3) 用种子机制实现完全可复现。
+> **关于这些算法（包括 LSTM）**：它们是**统计学上更严谨的随机采样器与预测器**，但在**独立同分布的彩票模型下**，任何采样器/预测器的中奖期望概率都等于均匀随机（一等奖 ≈ 1 / 17,721,088）。LSTM 在 walk-forward 回测里的 Top-6 命中数与均匀基线统计上不可区分——这不是模型缺陷，是测度论结论。算法的真正价值是：(1) 让多注之间天然分散，降低撞号风险；(2) 用诊断指标（ESS / R̂ / backtest）让过程透明可验证；(3) 用种子机制实现完全可复现。
 
 ### 数据
 - **开奖记录**：搜索（期号 / 日期 / 红球组合 / 蓝 NN）+ CSV 导出
@@ -125,6 +132,13 @@ ssq-data-lab/
 │       ├── mcmc.js             Metropolis-Hastings + ESS + Gelman-Rubin
 │       ├── distance.js         KL / JS / Wasserstein-1 / 质量分
 │       ├── advanced-sampler.js 高级采样器编排（4 引擎统一接口）
+│       ├── nn-math.js          矩阵运算 / Xavier·Orthogonal 初始化 / 激活函数 / 梯度裁剪
+│       ├── nn-optim.js         Adam / AdamW 优化器
+│       ├── nn-lstm.js          LSTM cell + 单/全序列 BPTT
+│       ├── nn-ssq-model.js     双色球编码 + LSTM 主体 + 双输出头（red sigmoid / blue softmax）
+│       ├── nn-trainer.js       Mini-batch 训练 + 早停 + 学习率调度
+│       ├── nn-backtest.js      Walk-forward 回测 + baseline 对比
+│       ├── lstm-controller.js  LSTM 面板 UI 控制器
 │       ├── ui.js               DOM 渲染 / 主题 / Toast
 │       └── utils.js            $ / pad2 / clamp / ...
 ├── data/
@@ -178,23 +192,24 @@ python tools/parse_ssq.py 历史.txt data/draws.json
 
 见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)。推荐 **GitHub Pages + Cloudflare Pages 双通道**（覆盖海外 + 国内）。
 
-## 这个项目和别的「彩票分析工具」哪里不一样
+## 这个项目和别的「双色球分析工具」哪里不一样
 
 GitHub 上的「双色球分析」基本只有两类：
 
 1. **走势图玩具** — 抄 500.com 的版式，没有任何统计严谨度
-2. **「AI 预测」项目** — LSTM 预测下一期，把统计上不可能的东西包装成聪明
+2. **「AI 预测」黑盒** — LSTM 调包预测，模型架构 / 训练过程 / backtesting 全藏起来
 
-本项目都不是。它**用真正的统计学说明没有什么可预测的** —— 卡方面板实时计算 p 值，告诉你能否拒绝「均匀分布」的原假设。3400 期数据上的答案是：**蓝球与均匀随机不可区分；红球存在与硬件噪声一致的边缘偏差；两者都不构成可预测性。**
+本项目两类都做，但都做到学术级透明：
+- **统计层**：3450 期数据上的卡方检验、Beta-Binomial 后验、k-DPP 多样化采样、多链 MCMC（带 ESS / R̂ 收敛诊断）
+- **神经网络层**：纯手写 LSTM（无 TensorFlow.js / PyTorch 依赖），BPTT 反向传播 + Adam 优化器 + 梯度裁剪 + 梯度检查测试，完整公开训练曲线和 walk-forward backtest 结果
 
-这就是这个项目想说的。生成器明确地被定义为「为了好玩的加权骰子」—— 它不会改变中奖概率。
+无论是哪一层，**所有数学细节都在源码里**，没有黑盒。
 
 ## 贡献
 
 欢迎 PR。先读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-**有些东西永远不会被合入**：
-- "AI/LSTM/神经网络预测下一期" —— 这是伪命题，项目底线
+**会被拒绝的 PR**：
 - 任何引导未成年人购彩的功能
 - 封闭式爬虫（数据源必须可替换）
 

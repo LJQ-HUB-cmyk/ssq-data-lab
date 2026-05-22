@@ -13,6 +13,7 @@ import { renderBars } from "./chart.js";
 import { renderTrend } from "./trend-chart.js";
 import { generateTickets } from "./generator.js";
 import { generateAdvanced } from "./advanced-sampler.js";
+import { setupLstmController, updateLstmDraws } from "./lstm-controller.js";
 import {
   oddEvenRatio,
   bigSmallRatio,
@@ -588,6 +589,7 @@ async function onRefresh() {
     state.coMatrix = null; // 重新构建
     computeStats();
     renderAll();
+    updateLstmDraws(draws);
     toast(`已刷新：${draws.length} 期`);
   } catch (err) {
     toast(`刷新失败：${err.message || err}`);
@@ -688,6 +690,7 @@ async function main() {
     bindInteractions();
     showDataSourceBanner(source, fetchError);
     startCountdown();
+    setupLstmController(draws);
   } catch (err) {
     showLoadError(String(err.message || err));
   }
