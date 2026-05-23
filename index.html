@@ -830,6 +830,13 @@
         window.addEventListener("load", () => {
           navigator.serviceWorker.register("./sw.js").catch(() => {});
         });
+        // 当新 SW 通过 skipWaiting + claim 接管页面时，自动刷新一次让 navigation 走新逻辑
+        let _swReloaded = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (_swReloaded) return;
+          _swReloaded = true;
+          location.reload();
+        });
       }
     </script>
   </body>
