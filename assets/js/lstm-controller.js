@@ -28,6 +28,8 @@ import { openModelManager } from "./model-manager-ui.js";
 import { isWorkerAvailable, trainInWorker } from "./nn-worker-client.js";
 import * as predictionHistory from "./prediction-history.js";
 import { diagnoseSsqTicket } from "./ssq-explainer.js";
+import { renderTrackerPanel } from "./prediction-tracker-ui.js";
+import { renderConformalPanel } from "./conformal-ui.js";
 
 const STORAGE_KEY = "ssq-lstm-default";
 const LEGACY_LS_KEY = "ssq-lstm-model-v2";  // 老 localStorage key
@@ -68,6 +70,21 @@ export function setupLstmController(allDraws) {
 
   // 启动时尝试加载已保存的模型
   tryAutoLoadModel();
+
+  // 启动时即渲染追踪面板（即使没数据也显示空态）
+  setTimeout(() => mountTracker(), 80);
+}
+
+let trackerRef = null;
+function mountTracker() {
+  const container = $("#lstmTrackerBody");
+  if (!container) return;
+  trackerRef = renderTrackerPanel(container, "ssq", state.draws);
+}
+
+/** 数据更新或新预测后调用，刷新追踪面板。 */
+function refreshTracker() {
+  if (trackerRef?.refresh) trackerRef.refresh();
 }
 
 export function updateLstmDraws(draws) {
@@ -365,6 +382,7 @@ function onPredict() {
       topBlue: [blueArg.num],
       K: { reds: 6, blue: 1 },
     });
+    refreshTracker();
   } catch (e) { /* localStorage 满 */ }
 }
 
@@ -453,6 +471,35 @@ async function onBacktest() {
     card.style.display = "";
     body.innerHTML = renderBacktestTable(lstmRes, ensembleRes, freqRes, bayesRes, uniformRes, testDraws.length);
     setStatus(`回测完成：${testDraws.length} 期`, "ok");
+
+    // 激活共形面板：用 lstm 单模型记录 + 当前最新预测概率（如果有）
+    try {
+      const conformalCard = $("#lstmConformalCard");
+      const conformalBody = $("#lstmConformalBody");
+      if (conformalCard && conformalBody) {
+        conformalCard.style.display = "";
+        // 取最新一期预测概率
+        let latestProbs = null;
+        try {
+          const window = state.draws.slice(-state.seqLen);
+          const histBefore = state.draws.slice(0, state.draws.length - state.seqLen);
+          const seq = encodeSequence(window, histBefore);
+          if (state.ensemble) {
+            const out = ensembleForward(state.ensemble.members, seq);
+            latestProbs = Float32Array.from(out.redProbs.data);
+          } else if (state.model) {
+            const fwd = forwardModel(state.model, seq, { training: false });
+            latestProbs = Float32Array.from(fwd.redProbs.data);
+          }
+        } catch (e) { /* ignore */ }
+        renderConformalPanel({
+          container: conformalBody,
+          backtestRecords: lstmRes.records,
+          lottery: "ssq",
+          latestProbs,
+        });
+      }
+    } catch (e) { console.warn("conformal panel failed:", e); }
   } catch (err) {
     setStatus(`回测失败：${err.message || err}`, "bad");
     console.error("backtest error:", err, err?.stack);

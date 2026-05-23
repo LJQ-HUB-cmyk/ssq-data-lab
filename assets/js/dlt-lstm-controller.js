@@ -27,6 +27,8 @@ import { openModelManager } from "./model-manager-ui.js";
 import { isWorkerAvailable, trainInWorker } from "./nn-worker-client.js";
 import * as predictionHistory from "./prediction-history.js";
 import { diagnoseTicket as diagnoseDltTicket } from "./dlt-explainer.js";
+import { renderTrackerPanel } from "./prediction-tracker-ui.js";
+import { renderConformalPanel } from "./conformal-ui.js";
 
 const STORAGE_KEY = "dlt-lstm-default";
 const LEGACY_LS_KEY = "dlt-lstm-model-v1";
@@ -63,6 +65,18 @@ export function setupDltLstmController(allDraws) {
     e.target.value = "";
   });
   tryAutoLoad();
+
+  setTimeout(() => mountDltTracker(), 80);
+}
+
+let dltTrackerRef = null;
+function mountDltTracker() {
+  const container = $("#dltLstmTrackerBody");
+  if (!container) return;
+  dltTrackerRef = renderTrackerPanel(container, "dlt", state.draws);
+}
+function refreshDltTracker() {
+  if (dltTrackerRef?.refresh) dltTrackerRef.refresh();
 }
 
 export function updateDltLstmDraws(draws) {
@@ -356,6 +370,7 @@ function onPredict() {
       topBlue: top2.map(([n]) => n),
       K: { reds: 5, blue: 2 },
     });
+    refreshDltTracker();
   } catch (e) {}
 }
 
@@ -434,6 +449,34 @@ async function onBacktest() {
     card.style.display = "";
     body.innerHTML = renderBacktestTable(lstmRes, freqRes, bayesRes, uniformRes, testDraws.length);
     setStatus(`回测完成：${testDraws.length} 期`, "ok");
+
+    // 激活共形面板
+    try {
+      const conformalCard = $("#dltLstmConformalCard");
+      const conformalBody = $("#dltLstmConformalBody");
+      if (conformalCard && conformalBody) {
+        conformalCard.style.display = "";
+        let latestProbs = null;
+        try {
+          const window = state.draws.slice(-state.seqLen);
+          const histBefore = state.draws.slice(0, state.draws.length - state.seqLen);
+          const seq = encodeDltSequence(window, histBefore);
+          if (state.ensemble) {
+            const out = dltEnsembleForward(state.ensemble.members, seq);
+            latestProbs = Float32Array.from(out.fProbs.data);
+          } else if (state.model) {
+            const fwd = forwardDltModel(state.model, seq, { training: false });
+            latestProbs = Float32Array.from(fwd.fProbs.data);
+          }
+        } catch (_) {}
+        renderConformalPanel({
+          container: conformalBody,
+          backtestRecords: lstmRes.records,
+          lottery: "dlt",
+          latestProbs,
+        });
+      }
+    } catch (e) { console.warn("dlt conformal panel failed:", e); }
   } catch (err) {
     setStatus(`回测失败：${err.message || err}`, "bad");
     console.error(err);

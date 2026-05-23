@@ -25,7 +25,7 @@
 //     c) 缓存命中前先校验 redirected==false，否则丢弃重新拉
 //     d) 静态资源（JS/CSS）走 cache-first，但同样校验 redirected
 
-const CACHE_VERSION = "ssq-lab-v17";
+const CACHE_VERSION = "ssq-lab-v18";
 const APP_SHELL = [
   "./assets/styles.css",
   "./assets/dlt-styles.css",
@@ -34,6 +34,7 @@ const APP_SHELL = [
   "./assets/js/chart.js",
   "./assets/js/chi-square.js",
   "./assets/js/combinatorics.js",
+  "./assets/js/conformal-ui.js",
   "./assets/js/conformal.js",
   "./assets/js/cooccurrence.js",
   "./assets/js/countdown.js",
@@ -88,6 +89,7 @@ const APP_SHELL = [
   "./assets/js/nn-trainer.js",
   "./assets/js/nn-worker-client.js",
   "./assets/js/prediction-history.js",
+  "./assets/js/prediction-tracker-ui.js",
   "./assets/js/rng.js",
   "./assets/js/ssq-explainer.js",
   "./assets/js/stats.js",
