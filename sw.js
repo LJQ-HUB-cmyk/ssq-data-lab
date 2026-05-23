@@ -5,24 +5,28 @@
 //   2. 数据保鲜：data/draws.json / data/dlt-draws.json 走 stale-while-revalidate
 //   3. 不缓存第三方：仅同源资源
 //
-// 关键陷阱（v9 修复）：
+// 关键陷阱（v10 修复）：
 //   ── 不能把"被重定向过的 Response"放进 cache。──
 //   按 Fetch 规范，SW 把 redirected==true 的响应返回给浏览器会触发 TypeError，
-//   表现为 ERR_FAILED。这里的踩坑场景：
+//   表现为 ERR_FAILED。踩坑场景：
 //     APP_SHELL 里写了 "./dlt.html"，但 Cloudflare Pages 把 /dlt.html 308 →
 //     /dlt，于是 cache.add("/dlt.html") 缓存到的是 redirected=true 的响应。
 //     第二次访问 dlt.html 时 SW 命中缓存返回，浏览器拒绝并抛 ERR_FAILED。
 //
-//   修复：
-//     a) 预缓存阶段用 `redirect: "follow"` + 重建 Response（去掉 redirected 标记）
-//     b) 运行时对 navigation 请求用 network-first（永远拿到正确的最终 URL 文档）
-//     c) 命中缓存时检查 res.redirected，如发现就丢弃并回源
+//   v9 试图用 new Response(blob, ...) 重建剥掉 redirected 标记，但这样
+//   产出的 Response.type === "default"（不是 "basic"），有时 Chrome 又会
+//   在 navigation 上对 type=default 的响应起疑，再次 ERR_FAILED。
+//
+//   v10 简化策略：
+//     a) 把 HTML 文档（index.html / dlt.html）从预缓存清单里去掉 ——
+//        反正 navigation 是 network-first，第一次访问就会被缓存
+//     b) HTML navigation 全部走 network-first：每次点击都拿网络上最新的
+//        最终文档，cache 只是离线兜底
+//     c) 缓存命中前先校验 redirected==false，否则丢弃重新拉
+//     d) 静态资源（JS/CSS）走 cache-first，但同样校验 redirected
 
-const CACHE_VERSION = "ssq-lab-v9";
+const CACHE_VERSION = "ssq-lab-v10";
 const APP_SHELL = [
-  "./",
-  "./index.html",
-  "./dlt.html",
   "./assets/styles.css",
   "./assets/dlt-styles.css",
   "./assets/js/main.js",
@@ -84,37 +88,24 @@ const APP_SHELL = [
   "./manifest.webmanifest",
 ];
 
-/** 取一个 URL 并返回去掉 redirected 标记的 Response（如果发生过 redirect）。 */
-async function fetchAndStrip(url) {
-  const res = await fetch(url, { redirect: "follow", credentials: "same-origin" });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  if (!res.redirected) return res;
-  // 重建一个干净的 Response，cache 里不会再出现 redirected: true 的条目
-  const body = await res.blob();
-  return new Response(body, {
-    status: res.status,
-    statusText: res.statusText,
-    headers: res.headers,
-  });
-}
-
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_VERSION);
-      // 不能用 cache.addAll：它会把 redirected 的响应直接放进去
+      // 单文件失败不阻塞 SW 安装；不缓存 HTML（navigation 走 network-first）
       await Promise.all(
         APP_SHELL.map(async (url) => {
           try {
-            const res = await fetchAndStrip(url);
-            await cache.put(url, res);
+            // 这些都是不会被 redirect 的资源，可以直接 cache.add
+            const res = await fetch(url, { credentials: "same-origin" });
+            if (res.ok && !res.redirected) {
+              await cache.put(url, res);
+            }
           } catch (e) {
-            // 单个文件失败不阻塞 SW 安装
-            console.warn("[sw] precache failed:", url, e.message);
+            // ignore
           }
         })
       );
-      // 立刻接管，避免用户刷新时还在用旧 SW
       self.skipWaiting();
     })()
   );
@@ -141,10 +132,10 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2) HTML 文档（navigation）：network-first
-  //    避免被 308 重定向污染过的旧缓存卡住后续访问
-  if (req.mode === "navigate" || (req.destination === "document")) {
-    event.respondWith(networkFirstNavigation(req));
+  // 2) HTML 文档（navigation）：network-only with offline fallback
+  //    永远不缓存，避免 redirected 污染；离线时回退到 cache（也校验 redirected）
+  if (req.mode === "navigate" || req.destination === "document") {
+    event.respondWith(networkOnlyForNav(req));
     return;
   }
 
@@ -153,32 +144,23 @@ self.addEventListener("fetch", (event) => {
 });
 
 /**
- * Navigation 请求：优先走网络。一旦网络成功，把剥离 redirected 后的副本放进缓存。
- * 网络失败时再回退到缓存（也再做一次 redirected 防御）。
+ * Navigation：network-only。绝不缓存 HTML，避免 redirected 污染。
+ * 网络失败时尝试用 cache 里**显式校验过的**已存条目（旧版 SW 留下的 dlt.html 等）。
  */
-async function networkFirstNavigation(req) {
-  const cache = await caches.open(CACHE_VERSION);
+async function networkOnlyForNav(req) {
   try {
-    const res = await fetch(req, { redirect: "follow" });
-    // 把"最终 URL（重定向后）"和"原始请求 URL"都缓存上一份干净副本
-    if (res.ok) {
-      const cleaned = res.redirected
-        ? new Response(await res.clone().blob(), {
-            status: res.status,
-            statusText: res.statusText,
-            headers: res.headers,
-          })
-        : res.clone();
-      // 用原始 request 作为 key，而不是重定向后的 URL，否则下次同 URL 还是命不中
-      cache.put(req, cleaned).catch(() => {});
-    }
-    return res;
+    return await fetch(req);
   } catch (err) {
-    const cached = await cache.match(req);
-    if (cached && !cached.redirected) return cached;
-    // 兜底：返回首页
-    const home = await cache.match("./index.html");
-    if (home && !home.redirected) return home;
+    // 离线兜底：找一个干净的（非 redirected）HTML
+    const cache = await caches.open(CACHE_VERSION);
+    const url = new URL(req.url);
+    // 试 dlt.html
+    if (url.pathname.includes("/dlt")) {
+      const c = await cache.match("./dlt.html");
+      if (c && !c.redirected) return c;
+    }
+    const c = await cache.match("./index.html");
+    if (c && !c.redirected) return c;
     return new Response("offline", { status: 503, headers: { "Content-Type": "text/plain;charset=utf-8" } });
   }
 }
@@ -187,28 +169,17 @@ async function cacheFirst(req) {
   const cache = await caches.open(CACHE_VERSION);
   const cached = await cache.match(req);
   if (cached && !cached.redirected) return cached;
-  // 缓存里是被污染的（redirected=true）→ 删掉重新拉
   if (cached && cached.redirected) {
+    // 修复历史污染缓存
     await cache.delete(req);
   }
   try {
-    const res = await fetch(req, { redirect: "follow" });
-    if (res.ok) {
-      const toCache = res.redirected
-        ? new Response(await res.clone().blob(), {
-            status: res.status,
-            statusText: res.statusText,
-            headers: res.headers,
-          })
-        : res.clone();
-      cache.put(req, toCache).catch(() => {});
+    const res = await fetch(req);
+    if (res.ok && !res.redirected) {
+      cache.put(req, res.clone()).catch(() => {});
     }
     return res;
   } catch (err) {
-    if (req.mode === "navigate") {
-      const home = await cache.match("./index.html");
-      if (home && !home.redirected) return home;
-    }
     throw err;
   }
 }
@@ -216,17 +187,10 @@ async function cacheFirst(req) {
 async function staleWhileRevalidate(req) {
   const cache = await caches.open(CACHE_VERSION);
   const cached = await cache.match(req);
-  const network = fetch(req, { redirect: "follow" })
-    .then(async (res) => {
-      if (res.ok) {
-        const toCache = res.redirected
-          ? new Response(await res.clone().blob(), {
-              status: res.status,
-              statusText: res.statusText,
-              headers: res.headers,
-            })
-          : res.clone();
-        cache.put(req, toCache).catch(() => {});
+  const network = fetch(req)
+    .then((res) => {
+      if (res.ok && !res.redirected) {
+        cache.put(req, res.clone()).catch(() => {});
       }
       return res;
     })
