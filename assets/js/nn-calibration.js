@@ -44,6 +44,31 @@ function goldenSearch(f, lo, hi, tol = 1e-4, maxIter = 80) {
   return (a + b) / 2;
 }
 
+/** 边界扩展搜索：先在 [0.05, 50] 找；触上/下界则报 boundaryHit。
+ *  另外检测 NLL plateau —— 如果 NLL(1) 与 NLL(T*) 改善 < `plateauTol`，
+ *  说明该方向本来就是平的（model 对该 head 几乎没信号），强制返回 T=1。
+ */
+const T_LOWER = 0.05;
+const T_UPPER = 50;
+const T_BOUNDARY_TOL = 0.02;     // 距上下界 2% 视为触界
+const NLL_PLATEAU_TOL = 1e-4;    // val NLL 改善 < 1e-4 视为 plateau
+
+function fitTWithBoundaryCheck(nllFn) {
+  const T = goldenSearch(nllFn, T_LOWER, T_UPPER);
+  const nllAtT = nllFn(T);
+  const nllAt1 = nllFn(1);
+  const improvement = nllAt1 - nllAtT;
+  let boundaryHit = null;
+  if (T < T_LOWER * (1 + T_BOUNDARY_TOL)) boundaryHit = "lower";
+  else if (T > T_UPPER * (1 - T_BOUNDARY_TOL)) boundaryHit = "upper";
+
+  // 如果改善微乎其微，温度 scaling 没意义，回 T=1
+  if (improvement < NLL_PLATEAU_TOL) {
+    return { T: 1, nllAt1, nllAtT: nllAt1, improvement: 0, boundaryHit: "plateau" };
+  }
+  return { T, nllAt1, nllAtT, improvement, boundaryHit };
+}
+
 /**
  * 给一批 logits + 二元 targets，拟合最优温度 T*。
  * @param logitsList 数组，每个元素是 {data: Float32Array}（rows×cols 一维即可）
@@ -73,9 +98,7 @@ export function fitTemperatureSigmoid(logitsList, targetsList) {
     return s / flat.length;
   };
 
-  const T = goldenSearch(nll, 0.1, 10);
-  const nllAt1 = nll(1);
-  const nllAtT = nll(T);
+  const { T, nllAt1, nllAtT, boundaryHit, improvement } = fitTWithBoundaryCheck(nll);
   const eceAt1 = computeECE(flat, 1);
   const eceAtT = computeECE(flat, T);
 
@@ -84,6 +107,8 @@ export function fitTemperatureSigmoid(logitsList, targetsList) {
     nllAt1, nllAtT,
     eceAt1, eceAtT,
     improvement: eceAt1 > 0 ? (eceAt1 - eceAtT) / eceAt1 : 0,
+    boundaryHit,                       // null | "lower" | "upper" | "plateau"
+    nllImprovement: improvement,
     samples: flat.length,
   };
 }
@@ -122,9 +147,7 @@ export function fitTemperatureSoftmax(logitsList, targetsList) {
     return s / N;
   };
 
-  const T = goldenSearch(nll, 0.1, 10);
-  const nllAt1 = nll(1);
-  const nllAtT = nll(T);
+  const { T, nllAt1, nllAtT, boundaryHit, improvement } = fitTWithBoundaryCheck(nll);
 
   // ECE for softmax: 取 argmax 概率为"confidence"
   const collectECE = (T_) => {
@@ -168,6 +191,8 @@ export function fitTemperatureSoftmax(logitsList, targetsList) {
     T, nllAt1, nllAtT,
     eceAt1, eceAtT,
     improvement: eceAt1 > 0 ? (eceAt1 - eceAtT) / eceAt1 : 0,
+    boundaryHit,
+    nllImprovement: improvement,
     samples: N,
   };
 }

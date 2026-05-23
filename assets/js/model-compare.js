@@ -15,7 +15,9 @@ import {
   bootstrapCI, pairedBootstrap,
   metricAvgHit6,
   brierSkillScore, permutationTest,
+  reliabilityDiagram,
 } from "./nn-statistics.js";
+import { splitConformal } from "./conformal.js";
 
 /** 把 SSQ 的 payload 还原成 model 对象。 */
 async function reviveSsqModel(payload) {
@@ -95,6 +97,27 @@ export async function renderComparison(payloadA, payloadB, draws, lottery = "ssq
   // Bootstrap 各自 95% CI
   const ciA = bootstrapCI(resA.records, (rs) => rs.reduce((s, r) => s + r[hitKey], 0) / Math.max(1, rs.length), { B: 500, seed: "ci-a" });
   const ciB = bootstrapCI(resB.records, (rs) => rs.reduce((s, r) => s + r[hitKey], 0) / Math.max(1, rs.length), { B: 500, seed: "ci-b" });
+
+  // 共形预测覆盖率（α=0.1）+ reliability 双线
+  const recsAforConf = resA.records.map((r) => ({
+    probs: r.redProbs || r.rawRedProbs,
+    realSet: r.realReds || r.realFront,
+  }));
+  const recsBforConf = resB.records.map((r) => ({
+    probs: r.redProbs || r.rawRedProbs,
+    realSet: r.realReds || r.realFront,
+  }));
+  let conformalA = null, conformalB = null;
+  try {
+    conformalA = splitConformal(recsAforConf, 0.1, 0.5);
+    conformalB = splitConformal(recsBforConf, 0.1, 0.5);
+  } catch (_) {}
+
+  let reliabA = null, reliabB = null;
+  try {
+    reliabA = reliabilityDiagram(resA.records, { bins: 10 });
+    reliabB = reliabilityDiagram(resB.records, { bins: 10 });
+  } catch (_) {}
 
   // 渲染
   const meta = (p) => ({
@@ -209,6 +232,9 @@ export async function renderComparison(payloadA, payloadB, draws, lottery = "ssq
       </div>
     </div>
 
+    ${renderConformalSection(conformalA, conformalB, isDlt)}
+    ${renderReliabilityCompare(reliabA, reliabB)}
+
     <div class="callout" style="margin-top:14px">
       <div class="callout-title">如何解读</div>
       <div class="callout-body">
@@ -264,4 +290,83 @@ function renderDualCurve(seriesA, seriesB, label, lowerIsBetter = false) {
 function escape(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+
+/** 共形预测覆盖率对比卡片。 */
+function renderConformalSection(confA, confB, isDlt) {
+  if (!confA || !confB || confA.warning || confB.warning) {
+    return `<div class="card" style="margin-top:14px"><div class="card-title">共形预测覆盖率 <span class="card-num">α=0.1</span></div><div class="hint">${escape((confA?.warning || confB?.warning) || "数据不足")}</div></div>`;
+  }
+  const expected = confA.expectedCoverage;
+  const cellHtml = (c, label, color) => {
+    const dev = Math.abs(c.coverage - expected);
+    const ok = dev < 0.06;
+    return `
+      <div class="diag-line"><span>${label} 经验覆盖率</span><strong class="mono" style="color:${ok ? "var(--acid)" : "var(--red-2)"}">${(c.coverage * 100).toFixed(1)}%</strong></div>
+      <div class="diag-line"><span>${label} 平均集合大小</span><strong class="mono">${c.avgSize.toFixed(1)}</strong></div>
+      <div class="diag-line"><span>${label} q̂ / 校准期数</span><strong class="mono">${c.qHat.toFixed(3)} · ${c.calN}</strong></div>
+    `;
+  };
+  return `
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">共形预测覆盖率 <span class="card-num">split conformal · α=0.1</span></div>
+      <div class="diag-grid" style="grid-template-columns: 1fr 1fr; gap: 6px 24px">
+        ${cellHtml(confA, "A", "var(--acid)")}
+        ${cellHtml(confB, "B", "var(--gold)")}
+      </div>
+      <div class="hint">期望覆盖率 ≈ ${(expected * 100).toFixed(0)}%。"覆盖率"= 真号集合是否完全在预测集内的比例。i.i.d. 抽奖下 split conformal 给频率主义保证；偏离 ≥ 6pp 提示该模型概率分布与真实分布有结构性偏差。集合越小越精炼。</div>
+    </div>
+  `;
+}
+
+/** Reliability 双线对比卡片。 */
+function renderReliabilityCompare(reliabA, reliabB) {
+  if (!reliabA || !reliabB) return "";
+  const W = 760, H = 240;
+  const padL = 36, padR = 12, padT = 18, padB = 32;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const sx = (v) => padL + v * innerW;
+  const sy = (v) => padT + (1 - v) * innerH;
+
+  const renderSeries = (points, color) => {
+    const valid = points.filter((p) => p.observedFreq != null && p.count > 0);
+    const dots = valid.map((p) => `<circle cx="${sx(p.avgPred).toFixed(1)}" cy="${sy(p.observedFreq).toFixed(1)}" r="${(2 + Math.min(8, Math.sqrt(p.count) * 0.5)).toFixed(1)}" fill="${color}" opacity="0.78"/>`).join("");
+    const line = valid.length > 1
+      ? `<polyline points="${valid.map(p => `${sx(p.avgPred).toFixed(1)},${sy(p.observedFreq).toFixed(1)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.7"/>`
+      : "";
+    return line + dots;
+  };
+  const refLine = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4"/>`;
+  const xAxis = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
+  const yAxis = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
+  const ticks = [0, 0.5, 1].map((v) => `
+    <text x="${sx(v)}" y="${padT + innerH + 14}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(1)}</text>
+    <text x="${padL - 4}" y="${sy(v) + 3}" text-anchor="end" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(1)}</text>
+  `).join("");
+
+  const legend = `
+    <g transform="translate(${padL + 8}, ${padT})">
+      <line x1="0" y1="0" x2="14" y2="0" stroke="var(--acid)" stroke-width="2"/>
+      <circle cx="22" cy="0" r="3" fill="var(--acid)"/>
+      <text x="30" y="3" font-size="9" fill="rgba(255,255,255,.7)">A · ECE ${reliabA.ece.toFixed(3)}</text>
+      <line x1="120" y1="0" x2="134" y2="0" stroke="var(--gold)" stroke-width="2"/>
+      <circle cx="142" cy="0" r="3" fill="var(--gold)"/>
+      <text x="150" y="3" font-size="9" fill="rgba(255,255,255,.7)">B · ECE ${reliabB.ece.toFixed(3)}</text>
+    </g>
+  `;
+
+  return `
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">Reliability 对比 <span class="card-num">A vs B</span></div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+        ${refLine}${xAxis}${yAxis}${ticks}
+        ${renderSeries(reliabA.points, "var(--acid)")}
+        ${renderSeries(reliabB.points, "var(--gold)")}
+        ${legend}
+      </svg>
+      <div class="hint">点越接近对角线越好。ECE 越低代表概率与真实命中率越对齐。</div>
+    </div>
+  `;
 }

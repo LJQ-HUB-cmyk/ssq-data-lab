@@ -26,6 +26,8 @@ import { createRng } from "./rng.js";
 import * as modelStorage from "./model-storage.js";
 import { openModelManager } from "./model-manager-ui.js";
 import { isWorkerAvailable, trainInWorker } from "./nn-worker-client.js";
+import * as predictionHistory from "./prediction-history.js";
+import { diagnoseSsqTicket } from "./ssq-explainer.js";
 
 const STORAGE_KEY = "ssq-lstm-default";
 const LEGACY_LS_KEY = "ssq-lstm-model-v2";  // 老 localStorage key
@@ -341,6 +343,80 @@ function onPredict() {
     </div>
   `;
   toast("已生成预测");
+
+  // 号码体检（六维度评分 + 健康灯）
+  try {
+    const reds6 = top6.map(([n]) => n);
+    const diag = diagnoseSsqTicket({ reds: reds6, blue: blueArg.num }, state.draws);
+    renderExplainerCard("#lstmPredictionBody", diag);
+  } catch (e) {
+    console.warn("explainer failed:", e);
+  }
+
+  // 记录预测追踪（用于"我做的预测命中分布"长期统计）
+  try {
+    const lastDraw = state.draws[state.draws.length - 1];
+    const targetIssue = lastDraw ? nextIssue(lastDraw.issue) : "next";
+    predictionHistory.record({
+      lottery: "ssq",
+      targetIssue,
+      modelType: state.ensemble ? "lstm-ensemble" : "lstm-single",
+      topReds: top6.map(([n]) => n),
+      topBlue: [blueArg.num],
+      K: { reds: 6, blue: 1 },
+    });
+  } catch (e) { /* localStorage 满 */ }
+}
+
+function nextIssue(issue) {
+  // 期号格式：双色球 7 位 (YYYYNNN)、大乐透 5 位 (YYNNN)
+  // 简化：末尾数字 +1（年末跨年由抓取脚本兜底）
+  const s = String(issue);
+  const last = s.slice(-3);
+  const n = parseInt(last, 10);
+  if (!Number.isFinite(n)) return s + "+1";
+  return s.slice(0, -3) + String(n + 1).padStart(3, "0");
+}
+
+function renderExplainerCard(containerSel, diag) {
+  const container = $(containerSel);
+  if (!container) return;
+  // 移除老 explainer
+  container.querySelector(".explainer-card")?.remove();
+
+  const lvl = diag.healthLevel;
+  const colorVar = lvl.color === "green" ? "var(--acid)" : lvl.color === "amber" ? "var(--gold)" : "var(--red-2)";
+  const dimsHtml = diag.dimensions.map((d) => `
+    <div class="explainer-dim">
+      <div class="explainer-dim-head">
+        <span class="explainer-dim-icon">${d.icon}</span>
+        <strong>${d.name}</strong>
+        <span class="mono" style="margin-left:auto;color:${d.score >= 75 ? "var(--acid)" : d.score >= 50 ? "var(--gold)" : "var(--red-2)"}">${d.score}</span>
+      </div>
+      <div class="explainer-dim-bar"><i style="width:${d.score}%;background:${d.score >= 75 ? "var(--acid)" : d.score >= 50 ? "var(--gold)" : "var(--red-2)"}"></i></div>
+      <div class="fine muted explainer-dim-reason">${d.reasons.map(r => `• ${escapeText(r)}`).join("<br>")}</div>
+    </div>
+  `).join("");
+  const card = document.createElement("div");
+  card.className = "explainer-card card";
+  card.style.marginTop = "14px";
+  card.innerHTML = `
+    <div class="explainer-head">
+      <div class="explainer-score" style="border-color:${colorVar};color:${colorVar}">
+        <strong>${diag.totalScore}</strong>
+        <span class="fine muted">/100</span>
+      </div>
+      <div class="explainer-meta">
+        <div class="card-title">号码体检 <span class="card-num">六维度评分</span></div>
+        <div style="margin-top:4px">${lvl.emoji} <strong style="color:${colorVar}">${lvl.label}</strong></div>
+      </div>
+    </div>
+    <div class="explainer-grid">${dimsHtml}</div>
+    <div class="callout" style="margin-top:12px">
+      <div class="callout-body" style="white-space:pre-wrap">${escapeText(diag.advice)}</div>
+    </div>
+  `;
+  container.appendChild(card);
 }
 
 /* ============================================================
@@ -823,11 +899,11 @@ async function onLoadDemo() {
 function onOpenManager() {
   openModelManager({
     lottery: "ssq",
-    currentKey: STORAGE_KEY,
+    currentKey: state.currentKey || STORAGE_KEY,
     onSwitch: (key, payload) => {
-      // 把 payload 应用到当前 state，并把 STORAGE_KEY 重新指向选定的 key
-      // 简化：直接替换默认 STORAGE_KEY 的内容
-      modelStorage.save(STORAGE_KEY, payload).catch(() => {});
+      // 只切换 state，不覆盖 STORAGE_KEY 的内容（保护用户原 default key 数据）
+      // 切换后用户如果想"把这个变成默认启动模型"，可以再点一次保存。
+      state.currentKey = key;
       applyLoadedPayload(payload, false);
       toast(`已切换到「${key}」`);
     },

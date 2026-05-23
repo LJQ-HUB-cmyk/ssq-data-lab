@@ -2120,3 +2120,84 @@ a {
     flex: 1 1 100%;
   }
 }
+
+
+/* ============================================================
+   Explainer card (号码体检)
+   ============================================================ */
+.explainer-card {
+  padding: 14px;
+}
+.explainer-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--stroke);
+  margin-bottom: 12px;
+}
+.explainer-score {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border: 2px solid var(--stroke);
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+}
+.explainer-score strong {
+  font-size: 24px;
+  line-height: 1;
+}
+.explainer-meta {
+  flex: 1;
+  min-width: 0;
+}
+.explainer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+}
+.explainer-dim {
+  background: var(--surface-2);
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.explainer-dim-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.explainer-dim-icon {
+  font-size: 16px;
+}
+.explainer-dim-bar {
+  position: relative;
+  height: 4px;
+  background: rgba(255, 255, 255, .08);
+  border-radius: 2px;
+  margin: 6px 0;
+  overflow: hidden;
+}
+.explainer-dim-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width .25s var(--ease-out);
+}
+.explainer-dim-reason {
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+  .explainer-grid { grid-template-columns: 1fr; }
+  .explainer-head { gap: 10px; }
+  .explainer-score { width: 56px; height: 56px; }
+  .explainer-score strong { font-size: 20px; }
+}

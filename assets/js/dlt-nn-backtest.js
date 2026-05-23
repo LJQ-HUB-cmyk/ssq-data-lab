@@ -11,14 +11,15 @@ import { DLT_CONFIG } from "./lottery-config.js";
 import { posteriorMeanArray } from "./bayes.js";
 import { FRONT_PRIOR, BACK_PRIOR } from "./dlt-advanced-sampler.js";
 import { createRng } from "./rng.js";
+import { BASELINES } from "./lottery-config.js";
 
 const FRONT_ZONE = DLT_CONFIG.zones[0];
 const BACK_ZONE = DLT_CONFIG.zones[1];
 
 export const DLT_RANDOM_BASELINE = {
-  frontHit5: 5 * 5 / 35,        // 0.7143
-  frontHit7: 5 * 7 / 35,        // 1.0
-  backHit2: 2 * 2 / 12,         // 0.3333
+  frontHit5: BASELINES.dlt.frontHit5,        // 0.7143
+  frontHit7: BASELINES.dlt.frontHit7,        // 1.0
+  backHit2: BASELINES.dlt.backHit2,          // 0.3333
 };
 
 export function backtestDltModel(model, trainTail, testDraws, seqLen, historyBeforeTrainTail = []) {

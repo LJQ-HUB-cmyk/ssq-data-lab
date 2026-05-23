@@ -30,6 +30,7 @@ import {
 import { freqFromDraws } from "./stats.js";
 import { posteriorMeanArray, RED_PRIOR, BLUE_PRIOR } from "./bayes.js";
 import { createRng } from "./rng.js";
+import { BASELINES } from "./lottery-config.js";
 
 /**
  * 在 testDraws 上做 backtest（不更新模型权重）。
@@ -251,7 +252,7 @@ function summarize(records) {
 
 /** 期望基线（理论值，随机预测器的渐近表现）。 */
 export const RANDOM_BASELINE = {
-  redHit6: 6 * 6 / 33,    // ≈ 1.0909
-  redHit8: 6 * 8 / 33,    // ≈ 1.4545
-  blueAcc: 1 / 16,        // 0.0625
+  redHit6: BASELINES.ssq.redHit6,    // ≈ 1.0909
+  redHit8: BASELINES.ssq.redHit8,    // ≈ 1.4545
+  blueAcc: BASELINES.ssq.blueAcc,    // 0.0625
 };

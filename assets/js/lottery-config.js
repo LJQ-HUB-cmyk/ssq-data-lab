@@ -95,3 +95,42 @@ export function validateDraw(draw, config) {
   }
   return null;
 }
+
+/* ============================================================
+ * 渐近基线（i.i.d. 抽奖下任何预测器的 hit@K 期望）
+ *
+ * 推导：n 个数里随机抽 pick 个真号；预测器 top-K 与之相交期望 = K * pick / n
+ *
+ * 这些常量提取为单一来源，避免散落在 6+ 文件里硬编码 6/33。
+ * ============================================================ */
+
+export const BASELINES = {
+  ssq: {
+    redHit6:  6 * 6 / 33,    // ≈ 1.0909  红球 top-6
+    redHit8:  6 * 8 / 33,    // ≈ 1.4545  红球 top-8
+    redHit10: 6 * 10 / 33,   // ≈ 1.8182
+    blueAcc:  1 / 16,        // 0.0625    蓝球 top-1
+    redClimatology: 6 / 33,  // 0.1818    每号期望命中率
+    blueClimatology: 1 / 16,
+  },
+  dlt: {
+    frontHit5: 5 * 5 / 35,   // ≈ 0.7143  前区 top-5
+    frontHit7: 5 * 7 / 35,   // ≈ 1.0     前区 top-7
+    frontHit10: 5 * 10 / 35, // ≈ 1.4286
+    backHit2:  2 * 2 / 12,   // ≈ 0.3333  后区 top-2
+    backHit3:  2 * 3 / 12,   // 0.5
+    frontClimatology: 5 / 35,// ≈ 0.1429
+    backClimatology:  2 / 12,// ≈ 0.1667
+  },
+};
+
+/** 给定 size + pick + K，返回 hit@K 期望 = K*pick/size。 */
+export function expectedHitK(size, pick, K) {
+  return (K * pick) / size;
+}
+
+/** 给定彩种配置，返回主区 climatology baseline（用于 BSS）。 */
+export function climatologyBaseline(config) {
+  const z = config.zones[0];
+  return z.pick / z.size;
+}
