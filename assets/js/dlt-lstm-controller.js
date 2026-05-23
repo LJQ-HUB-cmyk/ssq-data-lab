@@ -30,6 +30,7 @@ import { diagnoseTicket as diagnoseDltTicket } from "./dlt-explainer.js";
 import { renderTrackerPanel } from "./prediction-tracker-ui.js";
 import { renderConformalPanel } from "./conformal-ui.js";
 import { renderExplainerCard } from "./lstm-explainer-card.js";
+import { renderDriftMonitor } from "./drift-monitor-ui.js";
 
 const STORAGE_KEY = "dlt-lstm-default";
 const LEGACY_LS_KEY = "dlt-lstm-model-v1";
@@ -75,6 +76,10 @@ function mountDltTracker() {
   const container = $("#dltLstmTrackerBody");
   if (!container) return;
   dltTrackerRef = renderTrackerPanel(container, "dlt", state.draws);
+  const driftBody = $("#dltLstmDriftBody");
+  if (driftBody) {
+    renderDriftMonitor({ container: driftBody, draws: state.draws, lottery: "dlt" });
+  }
 }
 function refreshDltTracker() {
   if (dltTrackerRef?.refresh) dltTrackerRef.refresh();

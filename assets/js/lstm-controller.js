@@ -26,6 +26,7 @@ import { renderTrackerPanel } from "./prediction-tracker-ui.js";
 import { renderConformalPanel } from "./conformal-ui.js";
 import { renderSsqBacktestReport } from "./lstm-backtest-renderer.js";
 import { renderExplainerCard } from "./lstm-explainer-card.js";
+import { renderDriftMonitor } from "./drift-monitor-ui.js";
 
 const STORAGE_KEY = "ssq-lstm-default";
 const LEGACY_LS_KEY = "ssq-lstm-model-v2";  // 老 localStorage key
@@ -76,6 +77,11 @@ function mountTracker() {
   const container = $("#lstmTrackerBody");
   if (!container) return;
   trackerRef = renderTrackerPanel(container, "ssq", state.draws);
+  // 顺便挂漂移监测
+  const driftBody = $("#lstmDriftBody");
+  if (driftBody) {
+    renderDriftMonitor({ container: driftBody, draws: state.draws, lottery: "ssq" });
+  }
 }
 
 /** 数据更新或新预测后调用，刷新追踪面板。 */

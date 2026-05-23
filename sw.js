@@ -25,12 +25,15 @@
 //     c) 缓存命中前先校验 redirected==false，否则丢弃重新拉
 //     d) 静态资源（JS/CSS）走 cache-first，但同样校验 redirected
 
-const CACHE_VERSION = "ssq-lab-v19";
+const CACHE_VERSION = "ssq-lab-v20";
 const APP_SHELL = [
   "./assets/styles.css",
   "./assets/dlt-styles.css",
   "./assets/js/advanced-sampler.js",
   "./assets/js/bayes.js",
+  "./assets/js/bayesian-averaging.js",
+  "./assets/js/bca-bootstrap.js",
+  "./assets/js/block-bootstrap.js",
   "./assets/js/chart.js",
   "./assets/js/chi-square.js",
   "./assets/js/combinatorics.js",
@@ -65,6 +68,7 @@ const APP_SHELL = [
   "./assets/js/dlt-trend-chart.js",
   "./assets/js/dlt-ui.js",
   "./assets/js/dpp.js",
+  "./assets/js/drift-monitor-ui.js",
   "./assets/js/generator.js",
   "./assets/js/lottery-config.js",
   "./assets/js/lottery-stats.js",
@@ -77,6 +81,7 @@ const APP_SHELL = [
   "./assets/js/model-compare.js",
   "./assets/js/model-manager-ui.js",
   "./assets/js/model-storage.js",
+  "./assets/js/mondrian-conformal.js",
   "./assets/js/nn-backtest.js",
   "./assets/js/nn-calibration.js",
   "./assets/js/nn-ensemble.js",
@@ -92,8 +97,10 @@ const APP_SHELL = [
   "./assets/js/nn-worker-client.js",
   "./assets/js/prediction-history.js",
   "./assets/js/prediction-tracker-ui.js",
+  "./assets/js/psi.js",
   "./assets/js/rng.js",
   "./assets/js/ssq-explainer.js",
+  "./assets/js/stability-selection.js",
   "./assets/js/stats.js",
   "./assets/js/timeseries.js",
   "./assets/js/trend-chart.js",

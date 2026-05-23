@@ -9,6 +9,7 @@ import {
   reliabilityDiagram,
   brierSkillScore, permutationTest,
 } from "./nn-statistics.js";
+import { bcaBootstrap } from "./bca-bootstrap.js";
 import { RANDOM_BASELINE } from "./nn-backtest.js";
 import { BASELINES } from "./lottery-config.js";
 import { RED_DIM } from "./nn-ssq-model.js";
@@ -22,9 +23,9 @@ export function renderSsqBacktestReport(ctx) {
   const fmt = (v, d = 4) => (v == null ? "—" : v.toFixed(d));
   const pct = (v) => (v == null ? "—" : `${(v * 100).toFixed(2)}%`);
 
-  const lstmCi = bootstrapCI(lstm.records, metricAvgHit6, { B: 500, seed: "bt-lstm" });
-  const lstmBlueCi = bootstrapCI(lstm.records, metricBlueAcc, { B: 500, seed: "bt-lstm-b" });
-  const uniCi = bootstrapCI(uniform.records, metricAvgHit6, { B: 500, seed: "bt-uni" });
+  const lstmCi = bcaBootstrap(lstm.records, metricAvgHit6, { B: 800, seed: "bt-lstm" });
+  const lstmBlueCi = bcaBootstrapForBlueAcc(lstm.records);
+  const uniCi = bcaBootstrap(uniform.records, metricAvgHit6, { B: 800, seed: "bt-uni" });
   const paired = pairedBootstrap(lstm.records, uniform.records, metricAvgHit6, { B: 500, seed: "bt-paired" });
 
   const formatCI = (mean, lo, hi) =>
@@ -43,8 +44,8 @@ export function renderSsqBacktestReport(ctx) {
     ll: lstm.summary.avgRedLL + lstm.summary.avgBlueLL,
   });
   if (ensemble) {
-    const ensCi = bootstrapCI(ensemble.records, metricAvgHit6, { B: 500, seed: "bt-ens" });
-    const ensBlueCi = bootstrapCI(ensemble.records, metricBlueAcc, { B: 500, seed: "bt-ens-b" });
+    const ensCi = bcaBootstrap(ensemble.records, metricAvgHit6, { B: 800, seed: "bt-ens" });
+    const ensBlueCi = bcaBootstrapForBlueAcc(ensemble.records);
     rows.push({
       label: `LSTM Ensemble (K=${ensembleSize})`,
       tag: "primary",
@@ -118,9 +119,9 @@ export function renderSsqBacktestReport(ctx) {
       <table class="table">
         <thead><tr>
           <th>方法</th>
-          <th>红 hit@6 [95% CI]</th>
+          <th>红 hit@6 [95% BCa CI]</th>
           <th>红 hit@8</th>
-          <th>蓝 Top-1 准确率 [95% CI]</th>
+          <th>蓝 Top-1 准确率 [95% BCa CI]</th>
           <th>Brier</th>
           <th>NLL</th>
         </tr></thead>
@@ -235,4 +236,15 @@ export function renderReliabilityDiagram(reliab, reliabRaw = null) {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
     ${xAxis}${yAxis}${refLine}${ticks}${xLabel}${yLabel}${rawLine}${rawSvg}${calSvg}${legend}
   </svg>`;
+}
+
+
+/** BCa for blue accuracy (binary metric)。 */
+function bcaBootstrapForBlueAcc(records) {
+  return bcaBootstrap(records, (rs) => {
+    if (rs.length === 0) return 0;
+    let s = 0;
+    for (const r of rs) if (r.blueHit) s++;
+    return s / rs.length;
+  }, { B: 800, seed: "bt-blue" });
 }
