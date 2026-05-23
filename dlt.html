@@ -1042,8 +1042,22 @@
     <script>
       // PWA: 仅在 https 或 localhost 注册（file:// 与受限源直接跳过）
       if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("./sw.js").catch(() => {});
+        window.addEventListener("load", async () => {
+          try {
+            const reg = await navigator.serviceWorker.register("./sw.js");
+            reg.addEventListener("updatefound", () => {
+              const sw = reg.installing;
+              if (!sw) return;
+              sw.addEventListener("statechange", () => {
+                if (sw.state === "installed" && navigator.serviceWorker.controller) {
+                  showUpdateBanner(() => sw.postMessage({ type: "SKIP_WAITING" }));
+                }
+              });
+            });
+            if (reg.waiting && navigator.serviceWorker.controller) {
+              showUpdateBanner(() => reg.waiting.postMessage({ type: "SKIP_WAITING" }));
+            }
+          } catch (_) {}
         });
         let _swReloaded = false;
         navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -1051,6 +1065,19 @@
           _swReloaded = true;
           location.reload();
         });
+      }
+      function showUpdateBanner(onApply) {
+        if (document.querySelector(".pwa-update-banner")) return;
+        const el = document.createElement("div");
+        el.className = "pwa-update-banner";
+        el.innerHTML = `
+          <span>🎉 网站有新版本</span>
+          <button type="button" class="btn primary btn-sm" id="pwaApplyUpdate">立即更新</button>
+          <button type="button" class="btn ghost btn-sm" id="pwaDismissUpdate">稍后</button>
+        `;
+        document.body.appendChild(el);
+        el.querySelector("#pwaApplyUpdate").onclick = () => { onApply(); };
+        el.querySelector("#pwaDismissUpdate").onclick = () => el.remove();
       }
     </script>
   </body>

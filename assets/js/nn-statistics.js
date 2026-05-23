@@ -188,18 +188,37 @@ export function brierSkillScore(records, size = 33, pick = 6) {
    ========================================================= */
 
 /**
+ * 配对置换检验：对"模型 vs 基线"的 metric 差，做 paired permutation test。
+ *
  * @param recordsA / recordsB 必须等长且 i 期对 i 期
- * @param metricFn(record) → number
+ * @param metricFn(record) → number  把单个 record 映射成标量
  * @param B 重复次数（默认 1000）
  * @param seed 重现用
  * @returns { meanDiff, pTwoSided, observed, distribution }
+ *
+ * 兼容性：如果 metricFn 是"records[] → number"形式（如 metricAvgHit6），
+ * 我们也支持 — 通过 `(record) => metricFn([record])` 来包装。
  */
 export function permutationTest(recordsA, recordsB, metricFn, { B = 1000, seed = "perm" } = {}) {
   const n = Math.min(recordsA.length, recordsB.length);
   if (n === 0) return { meanDiff: 0, pTwoSided: 1, observed: 0, distribution: [] };
 
-  const a = recordsA.slice(0, n).map(metricFn);
-  const b = recordsB.slice(0, n).map(metricFn);
+  // 统一 metric 调用方式：先尝试当 per-record；如果抛错或返回非有限数，
+  // 退化成 batch 版本（包成单元素数组）。
+  let toScalar;
+  try {
+    const probe = metricFn(recordsA[0]);
+    if (Number.isFinite(probe)) {
+      toScalar = (rec) => metricFn(rec);
+    } else {
+      toScalar = (rec) => metricFn([rec]);
+    }
+  } catch {
+    toScalar = (rec) => metricFn([rec]);
+  }
+
+  const a = recordsA.slice(0, n).map(toScalar);
+  const b = recordsB.slice(0, n).map(toScalar);
   let observed = 0;
   for (let i = 0; i < n; i++) observed += a[i] - b[i];
   observed /= n;

@@ -19,6 +19,7 @@ import {
   bootstrapCI, pairedBootstrap,
   metricAvgHit6, metricBlueAcc,
   reliabilityDiagram,
+  brierSkillScore, permutationTest,
 } from "./nn-statistics.js";
 import { trainEnsemble, ensembleForward } from "./nn-ensemble.js";
 import { createRng } from "./rng.js";
@@ -146,10 +147,11 @@ async function onTrain() {
         },
         onEpoch: (e) => {
           appendCurve(e, e.member);
+          const eta = estimateETA(e.epoch + 1, e.totalEpochs) || "";
           if (ensembleK > 1) {
-            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)}`);
+            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)}${eta ? ` · ${eta}` : ""}`);
           } else {
-            setStatus(`[worker] epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)}`);
+            setStatus(`[worker] epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)}${eta ? ` · ${eta}` : ""}`);
           }
         },
       });
@@ -377,7 +379,7 @@ async function onBacktest() {
     setStatus(`回测完成：${testDraws.length} 期`, "ok");
   } catch (err) {
     setStatus(`回测失败：${err.message || err}`, "bad");
-    console.error(err);
+    console.error("backtest error:", err, err?.stack);
   }
 }
 
@@ -520,6 +522,12 @@ function renderBacktestTable(lstm, ensemble, freq, bayes, uniform, n) {
     ? `LSTM 与均匀随机的 hit@6 差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>包含 0</strong>，差异在统计上不显著——这正是预期：彩票是 i.i.d. 随机抽取，没有可学习的时间规律。`
     : `LSTM 与均匀随机的 hit@6 差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>不含 0</strong>。但要警惕：(1) ${n} 期的局部偏差可能是数据集偏差，不一定泛化；(2) 即便差异真实，也可能源于硬件物理偏差或 multi-seed 选最优结果，不构成可重复的可预测性。`;
 
+  // Brier Skill Score：模型 vs climatology baseline
+  const bssLstm = brierSkillScore(lstm.records, RED_DIM, 6);
+  const bssEnsemble = (ensemble && ensemble.records) ? brierSkillScore(ensemble.records, RED_DIM, 6) : null;
+  // 配对置换检验（B=1000）：比 paired bootstrap 更严格
+  const permTest = permutationTest(lstm.records, uniform.records, metricAvgHit6, { B: 1000, seed: "perm-lstm-uni" });
+
   // Reliability diagram for LSTM —— calibrated vs raw 对比
   const reliab = reliabilityDiagram(lstm.records, { bins: 10 });
   // raw 用 rawRedProbs（如果有）
@@ -528,7 +536,7 @@ function renderBacktestTable(lstm, ensemble, freq, bayes, uniform, n) {
     redProbs: r.rawRedProbs || r.redProbs, // 没 calibration 就退化成同一份
   }));
   const reliabRaw = reliabilityDiagram(rawRecords, { bins: 10 });
-  const hasCalibration = !!sourceModel.calibration;
+  const hasCalibration = !!state.model?.calibration;
   const reliabSvg = renderReliabilityDiagram(reliab, hasCalibration ? reliabRaw : null);
   const eceCompare = hasCalibration
     ? `ECE: raw <strong class="mono">${reliabRaw.ece.toFixed(4)}</strong> → calibrated <strong class="mono">${reliab.ece.toFixed(4)}</strong>（${reliabRaw.ece > reliab.ece ? "↓" : "↑"} ${Math.abs((reliabRaw.ece - reliab.ece) / Math.max(1e-6, reliabRaw.ece) * 100).toFixed(0)}%）`
@@ -553,6 +561,49 @@ function renderBacktestTable(lstm, ensemble, freq, bayes, uniform, n) {
     <div class="callout" style="margin-top:14px">
       <div class="callout-title">配对 Bootstrap 显著性检验（B=500）</div>
       <div class="callout-body">${verdict}</div>
+    </div>
+    <div class="bt-stats-grid" style="margin-top:14px">
+      <div class="card bt-stat-card">
+        <div class="card-title">Brier Skill Score <span class="card-num">vs climatology</span></div>
+        <div class="diag-grid">
+          <div class="diag-line">
+            <span>LSTM BSS（红球）</span>
+            <strong class="mono" style="color:${bssLstm.bss > 0 ? "var(--acid)" : "var(--red-2)"}">${bssLstm.bss.toFixed(4)}</strong>
+          </div>
+          ${bssEnsemble ? `
+          <div class="diag-line">
+            <span>Ensemble BSS</span>
+            <strong class="mono" style="color:${bssEnsemble.bss > 0 ? "var(--acid)" : "var(--red-2)"}">${bssEnsemble.bss.toFixed(4)}</strong>
+          </div>` : ""}
+          <div class="diag-line">
+            <span>Climatology baseline</span>
+            <strong class="mono">${(6 / 33).toFixed(4)}</strong>
+          </div>
+          <div class="diag-line">
+            <span>BS<sub>model</sub> · BS<sub>ref</sub></span>
+            <strong class="mono">${bssLstm.bsModel.toFixed(4)} · ${bssLstm.bsRef.toFixed(4)}</strong>
+          </div>
+        </div>
+        <div class="hint">BSS = 1 − BS_model / BS_ref。&gt;0 优于"全部猜 6/33"； &lt;0 反而更差。彩票 i.i.d. 下 BSS 期望 ≈ 0。</div>
+      </div>
+      <div class="card bt-stat-card">
+        <div class="card-title">配对置换检验 <span class="card-num">paired permutation, B=1000</span></div>
+        <div class="diag-grid">
+          <div class="diag-line">
+            <span>观察到的均值差</span>
+            <strong class="mono">${permTest.observed.toFixed(4)}</strong>
+          </div>
+          <div class="diag-line">
+            <span>双侧 p 值</span>
+            <strong class="mono" style="color:${permTest.pTwoSided < 0.05 ? "var(--gold)" : "var(--text)"}">${permTest.pTwoSided.toFixed(4)}</strong>
+          </div>
+          <div class="diag-line">
+            <span>判断（α=0.05）</span>
+            <strong>${permTest.pTwoSided < 0.05 ? `<span class="chip chip-warn">差异显著</span>` : `<span class="chip chip-ok">差异不显著</span>`}</strong>
+          </div>
+        </div>
+        <div class="hint">置换检验比 paired bootstrap 更严格。每次随机翻转 (LSTM, uniform) 的配对身份，看观察值是否落在分布尾部。p &gt;= 0.05 表示数据"看起来"和"两组本质上一样"无法区分。</div>
+      </div>
     </div>
     <div class="card" style="margin-top:14px; padding: var(--space-4)">
       <div class="card-title">校准曲线 · Reliability Diagram <span class="card-num">${eceCompare}</span></div>
@@ -858,11 +909,13 @@ function initCurves() {
   el.innerHTML = `
     <div class="curve-wrap" id="lstmLossCurve" data-label="Loss"></div>
     <div class="curve-wrap" id="lstmHitCurve" data-label="Red Top-6 Hit"></div>
+    <div class="curve-wrap" id="lstmLrCurve" data-label="Learning Rate"></div>
   `;
 }
 
 const liveSeries = {
-  trainLoss: [], valLoss: [], hit6: [], blueAcc: [],
+  trainLoss: [], valLoss: [], hit6: [], blueAcc: [], lr: [],
+  trainStartedAt: 0,
 };
 
 function resetLiveSeries() {
@@ -870,6 +923,8 @@ function resetLiveSeries() {
   liveSeries.valLoss = [];
   liveSeries.hit6 = [];
   liveSeries.blueAcc = [];
+  liveSeries.lr = [];
+  liveSeries.trainStartedAt = Date.now();
 }
 
 function appendCurve(epochState) {
@@ -877,6 +932,7 @@ function appendCurve(epochState) {
   liveSeries.valLoss.push(epochState.valLoss);
   liveSeries.hit6.push(epochState.valRedHit6);
   liveSeries.blueAcc.push(epochState.valBlueAcc);
+  if (typeof epochState.lr === "number") liveSeries.lr.push(epochState.lr);
 
   drawSpark("#lstmLossCurve", [
     { label: "train", series: liveSeries.trainLoss, color: "var(--blue)" },
@@ -885,6 +941,22 @@ function appendCurve(epochState) {
   drawSpark("#lstmHitCurve", [
     { label: "val hit@6", series: liveSeries.hit6, color: "var(--acid)" },
   ], "max", { ref: 6 * 6 / 33, refLabel: "随机基线 1.09" });
+  if (liveSeries.lr.length > 0) {
+    drawSpark("#lstmLrCurve", [
+      { label: "lr", series: liveSeries.lr, color: "var(--gold)" },
+    ], "max");
+  }
+}
+
+/** 计算 ETA：基于已用时间 / 已完成 epoch * 剩余 epoch。 */
+export function estimateETA(epochsDone, epochsTotal) {
+  if (epochsDone === 0) return null;
+  const elapsed = Date.now() - liveSeries.trainStartedAt;
+  const perEpoch = elapsed / epochsDone;
+  const remaining = (epochsTotal - epochsDone) * perEpoch;
+  if (remaining <= 0) return null;
+  if (remaining > 60000) return `约 ${Math.round(remaining / 60000)} 分钟剩余`;
+  return `约 ${Math.round(remaining / 1000)} 秒剩余`;
 }
 
 function drawSpark(sel, series, opt, extra = {}) {

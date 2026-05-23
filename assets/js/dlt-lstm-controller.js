@@ -19,6 +19,7 @@ import {
   bootstrapCI, pairedBootstrap,
   metricAvgHit6, metricBlueAcc,
   reliabilityDiagram,
+  brierSkillScore, permutationTest,
 } from "./nn-statistics.js";
 import { createRng } from "./rng.js";
 import * as modelStorage from "./model-storage.js";
@@ -129,10 +130,11 @@ async function onTrain() {
         },
         onEpoch: (e) => {
           appendCurve(e);
+          const eta = estimateETA(e.epoch + 1, e.totalEpochs) || "";
           if (ensembleK > 1) {
-            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)}`);
+            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)}${eta ? ` · ${eta}` : ""}`);
           } else {
-            setStatus(`[worker] epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)}`);
+            setStatus(`[worker] epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)}${eta ? ` · ${eta}` : ""}`);
           }
         },
       });
@@ -424,6 +426,10 @@ function renderBacktestTable(lstm, freq, bayes, uniform, n) {
     ? `LSTM 与均匀随机的前区 hit@5 差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>包含 0</strong>。差异不显著——这正是预期：大乐透前后区都是 i.i.d. 摇号。`
     : `差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>不含 0</strong>。但要警惕：(1) ${n} 期的局部偏差不一定泛化；(2) 即便差异真实，也不构成可重复的预测能力。`;
 
+  // BSS（用前区 35/5 配置）+ 配对置换检验
+  const bssLstm = brierSkillScore(lstm.records, FRONT_DIM, FRONT_PICK);
+  const permTest = permutationTest(lstm.records, uniform.records, metricAvgHit6, { B: 1000, seed: "dlt-perm" });
+
   const reliab = reliabilityDiagram(lstm.records, { bins: 10 });
   const rawRecords = lstm.records.map((r) => ({
     realReds: r.realReds,
@@ -454,6 +460,44 @@ function renderBacktestTable(lstm, freq, bayes, uniform, n) {
     <div class="callout" style="margin-top:14px">
       <div class="callout-title">配对 Bootstrap 显著性检验（B=500）</div>
       <div class="callout-body">${verdict}</div>
+    </div>
+    <div class="bt-stats-grid" style="margin-top:14px">
+      <div class="card bt-stat-card">
+        <div class="card-title">Brier Skill Score <span class="card-num">vs climatology</span></div>
+        <div class="diag-grid">
+          <div class="diag-line">
+            <span>LSTM BSS（前区）</span>
+            <strong class="mono" style="color:${bssLstm.bss > 0 ? "var(--dlt-front)" : "var(--red-2)"}">${bssLstm.bss.toFixed(4)}</strong>
+          </div>
+          <div class="diag-line">
+            <span>Climatology baseline</span>
+            <strong class="mono">${(FRONT_PICK / FRONT_DIM).toFixed(4)}</strong>
+          </div>
+          <div class="diag-line">
+            <span>BS<sub>model</sub> · BS<sub>ref</sub></span>
+            <strong class="mono">${bssLstm.bsModel.toFixed(4)} · ${bssLstm.bsRef.toFixed(4)}</strong>
+          </div>
+        </div>
+        <div class="hint">BSS = 1 − BS_model / BS_ref。&gt;0 优于"全部猜 5/35"；&lt;0 反而更差。彩票 i.i.d. 下 BSS 期望 ≈ 0。</div>
+      </div>
+      <div class="card bt-stat-card">
+        <div class="card-title">配对置换检验 <span class="card-num">paired permutation, B=1000</span></div>
+        <div class="diag-grid">
+          <div class="diag-line">
+            <span>观察到的均值差</span>
+            <strong class="mono">${permTest.observed.toFixed(4)}</strong>
+          </div>
+          <div class="diag-line">
+            <span>双侧 p 值</span>
+            <strong class="mono" style="color:${permTest.pTwoSided < 0.05 ? "var(--gold)" : "var(--text)"}">${permTest.pTwoSided.toFixed(4)}</strong>
+          </div>
+          <div class="diag-line">
+            <span>判断（α=0.05）</span>
+            <strong>${permTest.pTwoSided < 0.05 ? `<span class="chip chip-warn">差异显著</span>` : `<span class="chip chip-ok">差异不显著</span>`}</strong>
+          </div>
+        </div>
+        <div class="hint">置换检验比 paired bootstrap 更严格。p ≥ 0.05 表示数据看起来与"两组本质相同"无法区分。</div>
+      </div>
     </div>
     <div class="card" style="margin-top:14px; padding: var(--space-4)">
       <div class="card-title">校准曲线 · Reliability Diagram <span class="card-num">${eceCompare}</span></div>
@@ -681,18 +725,22 @@ function initCurves() {
   el.innerHTML = `
     <div class="curve-wrap" id="dltLstmLossCurve" data-label="Loss"></div>
     <div class="curve-wrap" id="dltLstmHitCurve" data-label="Front Hit@5"></div>
+    <div class="curve-wrap" id="dltLstmLrCurve" data-label="Learning Rate"></div>
   `;
 }
-const liveSeries = { trainLoss: [], valLoss: [], hit5: [], hit2: [] };
+const liveSeries = { trainLoss: [], valLoss: [], hit5: [], hit2: [], lr: [], trainStartedAt: 0 };
 function resetSeries() {
   liveSeries.trainLoss = []; liveSeries.valLoss = [];
   liveSeries.hit5 = []; liveSeries.hit2 = [];
+  liveSeries.lr = [];
+  liveSeries.trainStartedAt = Date.now();
 }
 function appendCurve(e) {
   liveSeries.trainLoss.push(e.trainLoss);
   liveSeries.valLoss.push(e.valLoss);
   liveSeries.hit5.push(e.valFrontHit5);
   liveSeries.hit2.push(e.valBackHit2);
+  if (typeof e.lr === "number") liveSeries.lr.push(e.lr);
   drawSpark("#dltLstmLossCurve", [
     { label: "train", series: liveSeries.trainLoss, color: "var(--dlt-front)" },
     { label: "val", series: liveSeries.valLoss, color: "var(--dlt-back)" },
@@ -700,6 +748,20 @@ function appendCurve(e) {
   drawSpark("#dltLstmHitCurve", [
     { label: "val hit@5", series: liveSeries.hit5, color: "var(--acid)" },
   ], { ref: DLT_RANDOM_BASELINE.frontHit5, refLabel: `随机基线 ${DLT_RANDOM_BASELINE.frontHit5.toFixed(3)}` });
+  if (liveSeries.lr.length > 0) {
+    drawSpark("#dltLstmLrCurve", [
+      { label: "lr", series: liveSeries.lr, color: "var(--gold)" },
+    ]);
+  }
+}
+function estimateETA(epochsDone, epochsTotal) {
+  if (epochsDone === 0) return null;
+  const elapsed = Date.now() - liveSeries.trainStartedAt;
+  const perEpoch = elapsed / epochsDone;
+  const remaining = (epochsTotal - epochsDone) * perEpoch;
+  if (remaining <= 0) return null;
+  if (remaining > 60000) return `约 ${Math.round(remaining / 60000)} 分钟剩余`;
+  return `约 ${Math.round(remaining / 1000)} 秒剩余`;
 }
 function drawSpark(sel, series, extra = {}) {
   const el = document.querySelector(sel);

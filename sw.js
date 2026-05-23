@@ -118,7 +118,12 @@ self.addEventListener("install", (event) => {
           }
         })
       );
-      self.skipWaiting();
+      // 注意：不再 skipWaiting()。让新 SW 进入 waiting 状态，
+      // 主线程检测到后会显示"有更新"横幅，用户点击后再 skipWaiting。
+      // 第一次访问时（无 controller）让它直接接管：
+      if (!self.registration?.active) {
+        self.skipWaiting();
+      }
     })()
   );
 });
@@ -131,6 +136,13 @@ self.addEventListener("activate", (event) => {
       await self.clients.claim();
     })()
   );
+});
+
+// 主线程发 { type: "SKIP_WAITING" } 时，立刻接管（用户点"立即更新"按钮触发）
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {

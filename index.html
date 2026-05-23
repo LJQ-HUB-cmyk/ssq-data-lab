@@ -845,16 +845,45 @@
     <script>
       // PWA: 仅在 https 或 localhost 注册（file:// 与受限源直接跳过）
       if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("./sw.js").catch(() => {});
+        window.addEventListener("load", async () => {
+          try {
+            const reg = await navigator.serviceWorker.register("./sw.js");
+            // 检测新 SW 进入 waiting 状态 → 显示"有更新"提示
+            reg.addEventListener("updatefound", () => {
+              const sw = reg.installing;
+              if (!sw) return;
+              sw.addEventListener("statechange", () => {
+                if (sw.state === "installed" && navigator.serviceWorker.controller) {
+                  showUpdateBanner(() => sw.postMessage({ type: "SKIP_WAITING" }));
+                }
+              });
+            });
+            // 也检查启动时已经在 waiting 的（用户上次没刷新就关了）
+            if (reg.waiting && navigator.serviceWorker.controller) {
+              showUpdateBanner(() => reg.waiting.postMessage({ type: "SKIP_WAITING" }));
+            }
+          } catch (_) {}
         });
-        // 当新 SW 通过 skipWaiting + claim 接管页面时，自动刷新一次让 navigation 走新逻辑
         let _swReloaded = false;
         navigator.serviceWorker.addEventListener("controllerchange", () => {
           if (_swReloaded) return;
           _swReloaded = true;
           location.reload();
         });
+      }
+      // 显示"有更新"横幅。点击后调 cb，cb 会触发 skipWaiting → controllerchange → 自动 reload
+      function showUpdateBanner(onApply) {
+        if (document.querySelector(".pwa-update-banner")) return;
+        const el = document.createElement("div");
+        el.className = "pwa-update-banner";
+        el.innerHTML = `
+          <span>🎉 网站有新版本</span>
+          <button type="button" class="btn primary btn-sm" id="pwaApplyUpdate">立即更新</button>
+          <button type="button" class="btn ghost btn-sm" id="pwaDismissUpdate">稍后</button>
+        `;
+        document.body.appendChild(el);
+        el.querySelector("#pwaApplyUpdate").onclick = () => { onApply(); };
+        el.querySelector("#pwaDismissUpdate").onclick = () => el.remove();
       }
     </script>
   </body>

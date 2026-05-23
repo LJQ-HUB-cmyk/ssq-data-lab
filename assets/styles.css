@@ -1954,3 +1954,59 @@ a {
   .model-manager-dialog .mm-item { flex-direction: column; align-items: stretch; gap: 8px; }
   .model-manager-dialog .mm-row-actions { justify-content: flex-end; }
 }
+
+
+/* ============================================================
+   Backtest 双 stat 卡片网格（BSS + Permutation）
+   ============================================================ */
+.bt-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.bt-stat-card {
+  padding: var(--space-4);
+}
+@media (max-width: 760px) {
+  .bt-stats-grid { grid-template-columns: 1fr; gap: 10px; }
+}
+
+
+/* ============================================================
+   PWA Update Banner
+   ============================================================ */
+.pwa-update-banner {
+  position: fixed;
+  z-index: 50;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+  max-width: calc(100vw - 24px);
+  animation: pwaBannerIn 0.3s var(--ease-out);
+}
+@keyframes pwaBannerIn {
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to   { transform: translate(-50%, 0);    opacity: 1; }
+}
+.pwa-update-banner .btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  min-height: 32px;
+}
+@media (max-width: 480px) {
+  .pwa-update-banner {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    border-radius: 12px;
+  }
+}
