@@ -77,8 +77,11 @@ async function onTrain() {
     const dropoutInput = clampNum("#dltLstmDropIn", 0, 0.5, 0.1);
     const dropoutHidden = clampNum("#dltLstmDropHidden", 0, 0.5, 0.2);
     const dropoutOutput = clampNum("#dltLstmDropOut", 0, 0.5, 0.2);
+    const labelSmoothing = clampNum("#dltLstmLabelSmooth", 0, 0.2, 0.05);
+    const lcbLambda = clampNum("#dltLstmLcbLambda", 0, 3, 0);
     const seedStr = $("#dltLstmSeed")?.value?.trim() || `dlt-train-${Date.now()}`;
     state.seqLen = seqLen;
+    state.lcbLambda = lcbLambda;
 
     setStatus("准备样本…");
     const samples = buildDltSamples(state.draws, seqLen);
@@ -102,6 +105,7 @@ async function onTrain() {
     const result = await trainDltModel(state.model, state.trainSamples, state.valSamples, {
       epochs, batchSize, lr,
       gradClip: 5, patience: 6, weightDecay: 1e-5,
+      labelSmoothing,
       rng: memberRng,
       onBatch: (b) => {
         if (b.totalBatches) setProgress(b.batch / b.totalBatches);
@@ -557,6 +561,21 @@ function renderFinalMetrics(history) {
     ["验证 后区 Hit@2", `${history.valBackHit2[last]?.toFixed(3)}（基线 ${DLT_RANDOM_BASELINE.backHit2.toFixed(3)}）`],
     ["训练 epoch 数", String(history.epochs.length)],
   ];
+
+  const cal = state.model?.calibration;
+  if (cal) {
+    const fmtImprove = (e) => {
+      if (!e) return "—";
+      const before = e.before, after = e.after;
+      const pct = before > 0 ? ((before - after) / before * 100) : 0;
+      return `${before.toFixed(3)} → ${after.toFixed(3)} (↓${pct.toFixed(0)}%)`;
+    };
+    items.push(["温度 T (front)", `${cal.frontT?.toFixed(3) ?? "—"} ${cal.frontT > 1 ? "（过自信→压平）" : cal.frontT < 1 ? "（欠自信→拉锐）" : ""}`]);
+    items.push(["温度 T (back)", `${cal.backT?.toFixed(3) ?? "—"}`]);
+    items.push(["前区 ECE", fmtImprove(cal.frontECE)]);
+    items.push(["后区 ECE", fmtImprove(cal.backECE)]);
+  }
+
   const el = $("#dltLstmMetrics");
   if (!el) return;
   el.innerHTML = items.map(([k, v]) => `

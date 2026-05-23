@@ -11,6 +11,7 @@
 import {
   makeMat, matmul, transpose, add,
   sigmoid, sigmoidBCEBackward, bceLoss,
+  bceLossSmoothed, smoothBinaryTarget,
   xavierInit, makeDropoutMask, hadamard,
 } from "./nn-math.js";
 import {
@@ -85,25 +86,55 @@ export function forwardDltModel(model, sequence, { training = false, rng = Math.
     hForHead = hadamard(hForHead, outputMask);
   }
   const fLogits = add(matmul(model.frontHead.W, hForHead), model.frontHead.b);
-  const fProbs = sigmoid(fLogits);
   const bLogits = add(matmul(model.backHead.W, hForHead), model.backHead.b);
-  const bProbs = sigmoid(bLogits);
+
+  // 推理时应用 temperature scaling（如果 model 上有 calibration）
+  let fProbs, bProbs;
+  if (!training && (model.calibration?.frontT || model.calibration?.backT)) {
+    const Tf = model.calibration.frontT || 1;
+    const Tb = model.calibration.backT || 1;
+    if (Tf !== 1) {
+      const scaled = makeMat(fLogits.rows, fLogits.cols);
+      for (let i = 0; i < fLogits.data.length; i++) scaled.data[i] = fLogits.data[i] / Tf;
+      fProbs = sigmoid(scaled);
+    } else fProbs = sigmoid(fLogits);
+    if (Tb !== 1) {
+      const scaled = makeMat(bLogits.rows, bLogits.cols);
+      for (let i = 0; i < bLogits.data.length; i++) scaled.data[i] = bLogits.data[i] / Tb;
+      bProbs = sigmoid(scaled);
+    } else bProbs = sigmoid(bLogits);
+  } else {
+    fProbs = sigmoid(fLogits);
+    bProbs = sigmoid(bLogits);
+  }
+
   return { stackFwd: fwd, hLast: fwd.hLast, hForHead, outputMask, fLogits, fProbs, bLogits, bProbs };
 }
 
-export function dltLossAndGrads(model, sequence, target, { rng = Math.random } = {}) {
+export function dltLossAndGrads(model, sequence, target, { rng = Math.random, labelSmoothing = 0 } = {}) {
   const fwd = forwardDltModel(model, sequence, { training: true, rng });
   const T = sequence.length;
   const H = model.hiddenDim;
 
-  const fLoss = bceLoss(fwd.fProbs, target.front) / FRONT_DIM;
-  const bLoss = bceLoss(fwd.bProbs, target.back) / BACK_DIM;
+  let frontT = target.front;
+  let backT = target.back;
+  if (labelSmoothing > 0) {
+    frontT = smoothBinaryTarget(target.front, labelSmoothing);
+    backT = smoothBinaryTarget(target.back, labelSmoothing);
+  }
+
+  const fLoss = labelSmoothing > 0
+    ? bceLossSmoothed(fwd.fProbs, target.front, labelSmoothing) / FRONT_DIM
+    : bceLoss(fwd.fProbs, target.front) / FRONT_DIM;
+  const bLoss = labelSmoothing > 0
+    ? bceLossSmoothed(fwd.bProbs, target.back, labelSmoothing) / BACK_DIM
+    : bceLoss(fwd.bProbs, target.back) / BACK_DIM;
   const totalLoss = fLoss + BACK_LOSS_WEIGHT * bLoss;
 
-  // 反向 head
-  const dF = sigmoidBCEBackward(fwd.fProbs, target.front);
+  // 反向 head（用 soft target）
+  const dF = sigmoidBCEBackward(fwd.fProbs, frontT);
   for (let i = 0; i < dF.data.length; i++) dF.data[i] /= FRONT_DIM;
-  const dB = sigmoidBCEBackward(fwd.bProbs, target.back);
+  const dB = sigmoidBCEBackward(fwd.bProbs, backT);
   for (let i = 0; i < dB.data.length; i++) dB.data[i] *= BACK_LOSS_WEIGHT / BACK_DIM;
 
   const hT = transpose(fwd.hForHead);
@@ -186,6 +217,7 @@ export function serializeDltModel(model) {
     stack: serializeStack(model.stack),
     frontHead: { W: flat(model.frontHead.W), b: flat(model.frontHead.b) },
     backHead: { W: flat(model.backHead.W), b: flat(model.backHead.b) },
+    calibration: model.calibration || null,
   };
 }
 
@@ -201,5 +233,6 @@ export function deserializeDltModel(obj) {
     stack: deserializeStack(obj.stack),
     frontHead: { W: inflate(obj.frontHead.W), b: inflate(obj.frontHead.b) },
     backHead: { W: inflate(obj.backHead.W), b: inflate(obj.backHead.b) },
+    calibration: obj.calibration || null,
   };
 }

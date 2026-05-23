@@ -21,6 +21,8 @@ import {
   matmul, transpose, add,
   sigmoid, sigmoidBCEBackward, bceLoss,
   softmax, softmaxCEBackward, crossEntropy,
+  bceLossSmoothed, crossEntropySmoothed,
+  smoothBinaryTarget, smoothCategoricalTarget,
   xavierInit, matmulAdd,
   makeDropoutMask, hadamard,
 } from "./nn-math.js";
@@ -111,9 +113,32 @@ export function forwardModel(model, sequence, { training = false, rng = Math.ran
   }
 
   const redLogits = add(matmul(model.redHead.W, hForHead), model.redHead.b);
-  const redProbs = sigmoid(redLogits);
   const blueLogits = add(matmul(model.blueHead.W, hForHead), model.blueHead.b);
-  const blueProbs = softmax(blueLogits);
+
+  // 推理时如果 model 有校准温度 (T_red, T_blue)，应用 temperature scaling
+  // 训练时（training=true）必须用 T=1，否则梯度计算就错了
+  let redProbs, blueProbs;
+  if (!training && (model.calibration?.redT || model.calibration?.blueT)) {
+    const Tr = model.calibration.redT || 1;
+    const Tb = model.calibration.blueT || 1;
+    if (Tr !== 1) {
+      const scaled = makeMat(redLogits.rows, redLogits.cols);
+      for (let i = 0; i < redLogits.data.length; i++) scaled.data[i] = redLogits.data[i] / Tr;
+      redProbs = sigmoid(scaled);
+    } else {
+      redProbs = sigmoid(redLogits);
+    }
+    if (Tb !== 1) {
+      const scaled = makeMat(blueLogits.rows, blueLogits.cols);
+      for (let i = 0; i < blueLogits.data.length; i++) scaled.data[i] = blueLogits.data[i] / Tb;
+      blueProbs = softmax(scaled);
+    } else {
+      blueProbs = softmax(blueLogits);
+    }
+  } else {
+    redProbs = sigmoid(redLogits);
+    blueProbs = softmax(blueLogits);
+  }
 
   return {
     stackFwd: fwd,
@@ -132,20 +157,33 @@ export function forwardModel(model, sequence, { training = false, rng = Math.ran
  *   stack.layers[l].dW/dU/db,
  *   redHead.dW, redHead.db, blueHead.dW, blueHead.db
  */
-export function lossAndGrads(model, sequence, target, { rng = Math.random } = {}) {
+export function lossAndGrads(model, sequence, target, { rng = Math.random, labelSmoothing = 0 } = {}) {
   const fwd = forwardModel(model, sequence, { training: true, rng });
   const T = sequence.length;
   const H = model.hiddenDim;
 
-  const redLoss = bceLoss(fwd.redProbs, target.red) / RED_DIM;
-  const blueLoss = crossEntropy(fwd.blueProbs, target.blue);
+  // Label smoothing：softTarget 仅用于反向梯度计算和 loss reporting
+  // 注意：softmaxCEBackward / sigmoidBCEBackward 都是 (probs - target)，target 用 soft 即可
+  let redTarget = target.red;
+  let blueTarget = target.blue;
+  if (labelSmoothing > 0) {
+    redTarget = smoothBinaryTarget(target.red, labelSmoothing);
+    blueTarget = smoothCategoricalTarget(target.blue, labelSmoothing);
+  }
+
+  const redLoss = labelSmoothing > 0
+    ? bceLossSmoothed(fwd.redProbs, target.red, labelSmoothing) / RED_DIM
+    : bceLoss(fwd.redProbs, target.red) / RED_DIM;
+  const blueLoss = labelSmoothing > 0
+    ? crossEntropySmoothed(fwd.blueProbs, target.blue, labelSmoothing)
+    : crossEntropy(fwd.blueProbs, target.blue);
   const totalLoss = redLoss + BLUE_LOSS_WEIGHT * blueLoss;
 
-  // 输出层反向
-  const dRedLogits = sigmoidBCEBackward(fwd.redProbs, target.red);
+  // 输出层反向（target 用 soft 版本）
+  const dRedLogits = sigmoidBCEBackward(fwd.redProbs, redTarget);
   for (let i = 0; i < dRedLogits.data.length; i++) dRedLogits.data[i] /= RED_DIM;
 
-  const dBlueLogits = softmaxCEBackward(fwd.blueProbs, target.blue);
+  const dBlueLogits = softmaxCEBackward(fwd.blueProbs, blueTarget);
   for (let i = 0; i < dBlueLogits.data.length; i++) dBlueLogits.data[i] *= BLUE_LOSS_WEIGHT;
 
   // dHead.W = dLogits · hForHead^T；db = dLogits
@@ -227,6 +265,7 @@ export function serializeModel(model) {
     stack: serializeStack(model.stack),
     redHead: { W: flat(model.redHead.W), b: flat(model.redHead.b) },
     blueHead: { W: flat(model.blueHead.W), b: flat(model.blueHead.b) },
+    calibration: model.calibration || null,
   };
 }
 
@@ -260,6 +299,7 @@ export function deserializeModel(obj) {
     stack: deserializeStack(obj.stack),
     redHead: { W: inflate(obj.redHead.W), b: inflate(obj.redHead.b) },
     blueHead: { W: inflate(obj.blueHead.W), b: inflate(obj.blueHead.b) },
+    calibration: obj.calibration || null,
   };
 }
 

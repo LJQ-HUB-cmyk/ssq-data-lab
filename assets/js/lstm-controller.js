@@ -87,8 +87,11 @@ async function onTrain() {
     const dropoutHidden = clampNum("#lstmDropHidden", 0, 0.5, 0.2);
     const dropoutOutput = clampNum("#lstmDropOut", 0, 0.5, 0.2);
     const ensembleK = clampInt("#lstmEnsembleK", 1, 8, 1);
+    const labelSmoothing = clampNum("#lstmLabelSmooth", 0, 0.2, 0.05);
+    const lcbLambda = clampNum("#lstmLcbLambda", 0, 3, 0);
     const seedStr = $("#lstmSeed")?.value?.trim() || `train-${Date.now()}`;
     state.seqLen = seqLen;
+    state.lcbLambda = lcbLambda;
 
     setStatus("准备样本…");
     const samples = buildSamples(state.draws, seqLen);
@@ -115,6 +118,7 @@ async function onTrain() {
       gradClip: 5,
       patience: 6,
       weightDecay: 1e-5,
+      labelSmoothing,
     };
 
     if (ensembleK > 1) {
@@ -197,7 +201,20 @@ function onPredict() {
     blueProbs = fwd.blueProbs;
   }
 
-  const top6 = topKRed(redProbs, 6);
+  // 选号：如果有 ensemble 且 lcbLambda > 0，用 LCB（μ - λσ）排序，
+  // 这能避开"模型也不确定"的号码，让多注分散覆盖更稳健。
+  const lambda = state.lcbLambda || 0;
+  let top6;
+  if (state.ensemble && redStd && lambda > 0) {
+    const arr = [];
+    for (let i = 0; i < RED_DIM; i++) {
+      arr.push([i + 1, redProbs.data[i] - lambda * redStd.data[i], redProbs.data[i], redStd.data[i]]);
+    }
+    arr.sort((a, b) => b[1] - a[1]);
+    top6 = arr.slice(0, 6).map(([n, score, mean]) => [n, mean]);
+  } else {
+    top6 = topKRed(redProbs, 6);
+  }
   const blueArg = argMaxBlue(blueProbs);
   const blueRanked = [];
   for (let i = 0; i < BLUE_DIM; i++) blueRanked.push([i + 1, blueProbs.data[i]]);
@@ -773,6 +790,22 @@ function renderFinalMetrics(history) {
     ["验证 蓝球 Top-1", `${(history.valBlueAcc[last] * 100).toFixed(2)}%（基线 6.25%）`],
     ["训练 epoch 数", String(history.epochs.length)],
   ];
+
+  // 加上 calibration 信息（如果有）
+  const cal = state.model?.calibration || state.ensemble?.members?.[0]?.calibration;
+  if (cal) {
+    const fmtImprove = (e) => {
+      if (!e) return "—";
+      const before = e.before, after = e.after;
+      const pct = before > 0 ? ((before - after) / before * 100) : 0;
+      return `${before.toFixed(3)} → ${after.toFixed(3)} (↓${pct.toFixed(0)}%)`;
+    };
+    items.push(["温度 T (red)", `${cal.redT?.toFixed(3) ?? "—"} ${cal.redT > 1 ? "（过自信→压平）" : cal.redT < 1 ? "（欠自信→拉锐）" : ""}`]);
+    items.push(["温度 T (blue)", `${cal.blueT?.toFixed(3) ?? "—"}`]);
+    items.push(["红球 ECE", fmtImprove(cal.redECE)]);
+    items.push(["蓝球 ECE", fmtImprove(cal.blueECE)]);
+  }
+
   const el = $("#lstmMetrics");
   if (!el) return;
   el.innerHTML = items.map(([k, v]) => `

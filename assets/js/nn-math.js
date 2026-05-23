@@ -247,6 +247,69 @@ export function sigmoidBCEBackward(probs, target, dst = null) {
   return out;
 }
 
+/* =========================================================
+   Label smoothing
+   ─────────────────────────────────────────────────────────
+   思想：把硬 target {0, 1} 替换成 {ε, 1-ε}，loss 永远不为 0，
+   防止网络对训练样本过度自信。
+     - 对 BCE（sigmoid，multi-label）：target' = (1-2ε)·target + ε
+       i.e. 1 → 1-ε, 0 → ε
+     - 对 CE（softmax，one-of-K）：target' = (1-ε)·target + ε/K
+   通常 ε = 0.05 ~ 0.1。
+   反向梯度仍是 (probs - target')，公式不变，只是 target 提前转过。
+   ========================================================= */
+
+/** 把 multi-label hard target {0,1} 平滑为 {ε, 1-ε}，原地修改返回。 */
+export function smoothBinaryTarget(target, eps = 0.05, dst = null) {
+  const out = dst || makeMat(target.rows, target.cols);
+  for (let i = 0; i < target.data.length; i++) {
+    out.data[i] = target.data[i] > 0.5 ? (1 - eps) : eps;
+  }
+  return out;
+}
+
+/** 把 one-hot 平滑为 (1-ε)·one-hot + ε/K。dst 可复用。 */
+export function smoothCategoricalTarget(target, eps = 0.05, dst = null) {
+  const out = dst || makeMat(target.rows, target.cols);
+  const K = target.rows * target.cols;
+  const off = eps / K;
+  for (let i = 0; i < target.data.length; i++) {
+    out.data[i] = target.data[i] * (1 - eps) + off;
+  }
+  return out;
+}
+
+/**
+ * Label-smoothed BCE loss：
+ *   L = -Σ [t' log p + (1-t') log(1-p)],  t' = (1-2ε)·t + ε
+ * 等价于：L_LS = (1-2ε)·BCE(p,t) + ε·BCE(p, 0.5) + const
+ * 直接计算原式更直观。
+ */
+export function bceLossSmoothed(probs, target, eps = 0.05) {
+  let loss = 0;
+  for (let i = 0; i < probs.data.length; i++) {
+    const p = Math.max(1e-12, Math.min(1 - 1e-12, probs.data[i]));
+    const tHard = target.data[i] > 0.5 ? 1 : 0;
+    const tSoft = tHard * (1 - 2 * eps) + eps;
+    loss -= tSoft * Math.log(p) + (1 - tSoft) * Math.log(1 - p);
+  }
+  return loss;
+}
+
+/** Label-smoothed cross entropy. */
+export function crossEntropySmoothed(probs, target, eps = 0.05) {
+  const K = target.rows * target.cols;
+  const off = eps / K;
+  let loss = 0;
+  for (let i = 0; i < probs.data.length; i++) {
+    const tSoft = target.data[i] * (1 - eps) + off;
+    if (tSoft > 1e-12) {
+      loss -= tSoft * Math.log(Math.max(1e-12, probs.data[i]));
+    }
+  }
+  return loss;
+}
+
 /** 全局梯度裁剪：所有梯度合到一个全局 L2 范数 <= maxNorm。 */
 export function clipGradGlobal(grads, maxNorm) {
   let sumSq = 0;

@@ -10,13 +10,14 @@
 // 全部在主线程同步运行；训练时 yield 回 UI（每个 batch 后 await 一个 microtask 让浏览器更新进度）
 
 import {
-  encodeSequence, encodeTarget,
-  lossAndGrads, flattenParams, flattenGrads,
-  RED_DIM, BLUE_DIM,
-  forwardModel, topKRed, argMaxBlue,
+  encodeDraw, encodeSequence, encodeTarget,
+  forwardModel, lossAndGrads, flattenParams, flattenGrads,
+  topKRed, argMaxBlue,
+  RED_DIM, BLUE_DIM, BLUE_LOSS_WEIGHT,
 } from "./nn-ssq-model.js";
 import { clipGradGlobal, makeMat, hasNaN } from "./nn-math.js";
 import { createAdam } from "./nn-optim.js";
+import { fitTemperatureSigmoid, fitTemperatureSoftmax } from "./nn-calibration.js";
 
 /** 从历史 draws 构造样本数组。 */
 export function buildSamples(draws, seqLen) {
@@ -116,6 +117,7 @@ export async function trainModel(model, trainSamples, valSamples, opts = {}) {
     weightDecay = 1e-5,
     gradClip = 5,
     patience = 5,
+    labelSmoothing = 0,
     rng = Math.random,
     onEpoch,
     onBatch,
@@ -160,7 +162,7 @@ export async function trainModel(model, trainSamples, valSamples, opts = {}) {
       const accum = makeAccumGrads(model);
       let batchLoss = 0;
       for (const sample of batch) {
-        const { loss, grads } = lossAndGrads(model, sample.sequence, sample.target, { rng });
+        const { loss, grads } = lossAndGrads(model, sample.sequence, sample.target, { rng, labelSmoothing });
         batchLoss += loss;
         addInto(accum, flattenGrads(grads));
       }
@@ -233,7 +235,49 @@ export async function trainModel(model, trainSamples, valSamples, opts = {}) {
 
   // 还原到最佳
   if (bestParams) restoreParams(model, bestParams);
-  return { model, history, bestValLoss };
+
+  // 训练完成后自动 fit temperature scaling 校准
+  // 用 val set 拿 raw logits，黄金分割搜索最优 T
+  // 注意：先把 model.calibration 清空，确保 forward 拿到的是真 logits
+  const prevCal = model.calibration;
+  model.calibration = null;
+  try {
+    const calibration = fitModelCalibration(model, valSamples);
+    model.calibration = calibration;
+  } catch (e) {
+    model.calibration = prevCal;
+  }
+
+  return { model, history, bestValLoss, calibration: model.calibration };
+}
+
+/**
+ * 用 val set 收集 logits 后拟合 (T_red, T_blue)。
+ */
+function fitModelCalibration(model, valSamples) {
+  if (!valSamples || valSamples.length < 10) return null;
+  const redLogitsList = [];
+  const redTargets = [];
+  const blueLogitsList = [];
+  const blueTargets = [];
+  for (const s of valSamples) {
+    const fwd = forwardModel(model, s.sequence, { training: false });
+    redLogitsList.push(fwd.redLogits);
+    redTargets.push(s.target.red);
+    blueLogitsList.push(fwd.blueLogits);
+    blueTargets.push(s.target.blue);
+  }
+  const redCal = fitTemperatureSigmoid(redLogitsList, redTargets);
+  const blueCal = fitTemperatureSoftmax(blueLogitsList, blueTargets);
+  return {
+    redT: redCal.T,
+    blueT: blueCal.T,
+    redECE: { before: redCal.eceAt1, after: redCal.eceAtT },
+    blueECE: { before: blueCal.eceAt1, after: blueCal.eceAtT },
+    redNLL: { before: redCal.nllAt1, after: redCal.nllAtT },
+    blueNLL: { before: blueCal.nllAt1, after: blueCal.nllAtT },
+    fitOnSamples: valSamples.length,
+  };
 }
 
 function makeAccumGrads(model) {

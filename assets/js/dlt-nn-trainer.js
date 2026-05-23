@@ -8,6 +8,7 @@ import {
 } from "./dlt-nn-model.js";
 import { clipGradGlobal, makeMat, hasNaN } from "./nn-math.js";
 import { createAdam } from "./nn-optim.js";
+import { fitTemperatureSigmoid } from "./nn-calibration.js";
 
 export function buildDltSamples(draws, seqLen) {
   const samples = [];
@@ -93,6 +94,7 @@ export async function trainDltModel(model, trainSamples, valSamples, opts = {}) 
     weightDecay = 1e-5,
     gradClip = 5,
     patience = 6,
+    labelSmoothing = 0,
     rng = Math.random,
     onEpoch, onBatch, shouldStop,
   } = opts;
@@ -125,7 +127,7 @@ export async function trainDltModel(model, trainSamples, valSamples, opts = {}) 
       const accum = makeAccumGrads(model);
       let batchLoss = 0;
       for (const sample of batch) {
-        const { loss, grads } = dltLossAndGrads(model, sample.sequence, sample.target, { rng });
+        const { loss, grads } = dltLossAndGrads(model, sample.sequence, sample.target, { rng, labelSmoothing });
         batchLoss += loss;
         addInto(accum, flattenDltGrads(grads));
       }
@@ -191,7 +193,41 @@ export async function trainDltModel(model, trainSamples, valSamples, opts = {}) 
     }
   }
   if (bestParams) restoreParams(model, bestParams);
-  return { model, history, bestValLoss };
+
+  // Fit temperature scaling on val set
+  const prevCal = model.calibration;
+  model.calibration = null;
+  try {
+    model.calibration = fitDltCalibration(model, valSamples);
+  } catch (e) {
+    model.calibration = prevCal;
+  }
+
+  return { model, history, bestValLoss, calibration: model.calibration };
+}
+
+function fitDltCalibration(model, valSamples) {
+  if (!valSamples || valSamples.length < 10) return null;
+  const fLogitsList = [], fTargets = [];
+  const bLogitsList = [], bTargets = [];
+  for (const s of valSamples) {
+    const fwd = forwardDltModel(model, s.sequence, { training: false });
+    fLogitsList.push(fwd.fLogits);
+    fTargets.push(s.target.front);
+    bLogitsList.push(fwd.bLogits);
+    bTargets.push(s.target.back);
+  }
+  const fCal = fitTemperatureSigmoid(fLogitsList, fTargets);
+  const bCal = fitTemperatureSigmoid(bLogitsList, bTargets);
+  return {
+    frontT: fCal.T,
+    backT: bCal.T,
+    frontECE: { before: fCal.eceAt1, after: fCal.eceAtT },
+    backECE: { before: bCal.eceAt1, after: bCal.eceAtT },
+    frontNLL: { before: fCal.nllAt1, after: fCal.nllAtT },
+    backNLL: { before: bCal.nllAt1, after: bCal.nllAtT },
+    fitOnSamples: valSamples.length,
+  };
 }
 
 function makeAccumGrads(model) {
