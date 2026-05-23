@@ -157,7 +157,7 @@ async function onTrain() {
 
     $("#btnLstmPredict").disabled = false;
     $("#btnLstmBacktest").disabled = false;
-    $("#btnLstmSave").disabled = !state.model; // ensemble 暂不支持保存
+    $("#btnLstmSave").disabled = false; // ensemble 也可保存（v2）
   } catch (err) {
     setStatus(`错误：${err.message || err}`, "bad");
     console.error(err);
@@ -507,16 +507,26 @@ function renderReliabilityDiagram(reliab) {
  * 持久化
  * ============================================================ */
 function onSave() {
-  if (!state.model) return;
+  if (!state.model && !state.ensemble) return;
   try {
-    const payload = {
-      model: serializeModel(state.model),
-      seqLen: state.seqLen,
-      history: state.history,
-      savedAt: new Date().toISOString(),
-    };
+    const payload = state.ensemble
+      ? {
+          type: "ensemble",
+          members: state.ensemble.members.map(serializeModel),
+          histories: state.ensemble.histories,
+          seqLen: state.seqLen,
+          savedAt: new Date().toISOString(),
+        }
+      : {
+          type: "single",
+          model: serializeModel(state.model),
+          seqLen: state.seqLen,
+          history: state.history,
+          savedAt: new Date().toISOString(),
+        };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    toast("模型已保存到浏览器 localStorage");
+    const tag = payload.type === "ensemble" ? `${payload.members.length} 模型集成` : "单模型";
+    toast(`已保存到 localStorage（${tag}）`);
   } catch (e) {
     toast(`保存失败：${e.message}（可能超出 localStorage 配额）`);
   }
@@ -527,12 +537,7 @@ function tryAutoLoadModel() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const payload = JSON.parse(raw);
-    state.model = deserializeModel(payload.model);
-    state.seqLen = payload.seqLen || 15;
-    state.history = payload.history || null;
-    setStatus(`已自动加载保存的模型（${payload.savedAt?.slice(0, 19) || ""}），可直接预测`, "ok");
-    if (state.history) renderFinalMetrics(state.history);
-    $("#btnLstmPredict").disabled = false;
+    applyLoadedPayload(payload, /*silent=*/true);
   } catch (e) {
     // 损坏的 payload 直接忽略
   }
@@ -546,15 +551,39 @@ function onLoad() {
       return;
     }
     const payload = JSON.parse(raw);
-    state.model = deserializeModel(payload.model);
-    state.seqLen = payload.seqLen || 15;
+    applyLoadedPayload(payload, /*silent=*/false);
+  } catch (e) {
+    toast(`加载失败：${e.message}`);
+  }
+}
+
+function applyLoadedPayload(payload, silent) {
+  state.seqLen = payload.seqLen || 15;
+  if (payload.type === "ensemble" && Array.isArray(payload.members)) {
+    state.ensemble = {
+      members: payload.members.map(deserializeModel),
+      histories: payload.histories || [],
+    };
+    state.model = null;
+    state.history = state.ensemble.histories[state.ensemble.histories.length - 1] || null;
+    if (state.history) renderFinalMetrics(state.history);
+    $("#btnLstmPredict").disabled = false;
+    $("#btnLstmBacktest").disabled = !state.valSamples;
+    $("#btnLstmSave").disabled = false;
+    if (!silent) toast(`已加载 ensemble（K=${state.ensemble.members.length}）`);
+    else setStatus(`已自动加载保存的 ensemble（K=${state.ensemble.members.length}），可直接预测`, "ok");
+  } else {
+    // 兼容老版（type 缺失也按 single 处理）
+    const modelObj = payload.model || payload; // 历史结构兼容
+    state.model = deserializeModel(modelObj);
+    state.ensemble = null;
     state.history = payload.history || null;
     if (state.history) renderFinalMetrics(state.history);
     $("#btnLstmPredict").disabled = false;
     $("#btnLstmBacktest").disabled = !state.valSamples;
-    toast("已加载模型");
-  } catch (e) {
-    toast(`加载失败：${e.message}`);
+    $("#btnLstmSave").disabled = false;
+    if (!silent) toast("已加载模型");
+    else setStatus(`已自动加载保存的模型（${payload.savedAt?.slice(0, 19) || ""}），可直接预测`, "ok");
   }
 }
 

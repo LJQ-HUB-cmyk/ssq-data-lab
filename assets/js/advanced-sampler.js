@@ -280,23 +280,25 @@ function runMcmc({
     chainResults.push(res);
   }
 
-  // 合并所有链的样本，按能量升序选 count 个唯一组合
+  // 合并所有链的样本，按能量升序选 count 个**前区不重复**的组合
+  // 注意：去重 key 只看红球组合，否则 MCMC 链停留在能量低点时只靠"换蓝"凑唯一性，
+  // 5 注里会出现前 3 注红球完全相同的退化情况，破坏"低撞号 + 分散覆盖"。
   const allSamples = [];
   for (const c of chainResults) for (const s of c.samples) allSamples.push(s);
   allSamples.sort((a, b) => a.energy - b.energy);
 
   const tickets = [];
-  const seen = new Set();
+  const seenReds = new Set();
   for (const s of allSamples) {
     if (tickets.length >= count) break;
     if (!passesConstraints(s.reds, constraints)) continue;
-    // 蓝球：每张票重新独立采（让蓝球多样）
+    const redKey = s.reds.join(",");
+    if (seenReds.has(redKey)) continue;
+    seenReds.add(redKey);
+    // 蓝球：每张票独立采（让蓝球多样）
     const blue = pickBlue();
-    const key = `${s.reds.join(",")}|${blue}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     tickets.push({
-      key, reds: s.reds, blue,
+      key: `${redKey}|${blue}`, reds: s.reds, blue,
       score: -s.energy,
       diagnostics: {
         energy: s.energy,

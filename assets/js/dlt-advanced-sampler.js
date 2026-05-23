@@ -319,22 +319,23 @@ function runMcmcDlt({
     chainResults.push(res);
   }
 
-  // 合并样本，按能量升序选 count 个唯一组合
+  // 合并样本，按能量升序选 count 个**前区不重复**的组合。
+  // 不能用 "front|back" 做 key——MCMC 链停在能量低点时会输出 5 注前 3 注前区相同。
   const allSamples = [];
   for (const c of chainResults) for (const s of c.samples) allSamples.push(s);
   allSamples.sort((a, b) => a.energy - b.energy);
 
   const tickets = [];
-  const seen = new Set();
+  const seenFront = new Set();
   for (const s of allSamples) {
     if (tickets.length >= count) break;
     if (!passesDltConstraints(s.reds, constraints)) continue;
+    const frontKey = s.reds.join(",");
+    if (seenFront.has(frontKey)) continue;
+    seenFront.add(frontKey);
     const back = pickBack();
-    const key = `${s.reds.join(",")}|${back.join(",")}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     tickets.push({
-      key,
+      key: `${frontKey}|${back.join(",")}`,
       front: s.reds,
       back,
       score: -s.energy,
