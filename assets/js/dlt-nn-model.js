@@ -18,24 +18,34 @@ import {
   createStackedLSTM, stackedForward, stackedBackward,
   serializeStack, deserializeStack,
 } from "./nn-stack.js";
+import { dltFrontFeatures, appendFeatures, FEATURE_AUG_DIM } from "./nn-features.js";
 
 export const FRONT_DIM = 35;
 export const BACK_DIM = 12;
-export const FEATURE_DIM = FRONT_DIM + BACK_DIM;
+export const BASE_FEATURE_DIM = FRONT_DIM + BACK_DIM;
+export const FEATURE_DIM = BASE_FEATURE_DIM + FEATURE_AUG_DIM;  // 47 + 14 = 61
 export const FRONT_PICK = 5;
 export const BACK_PICK = 2;
-export const BACK_LOSS_WEIGHT = 5; // 后区比例小，加权防止被前区主导
+export const BACK_LOSS_WEIGHT = 5;
 
-/** 编码一期 → 47 维。 */
-export function encodeDltDraw(draw) {
-  const v = new Float32Array(FEATURE_DIM);
+/** 编码一期 → 47+14=61 维（multi-hot + 14 维统计特征）。 */
+export function encodeDltDraw(draw, history = []) {
+  const v = new Float32Array(BASE_FEATURE_DIM);
   for (const r of draw.front) v[r - 1] = 1;
   for (const b of draw.back) v[FRONT_DIM + b - 1] = 1;
-  return { rows: FEATURE_DIM, cols: 1, data: v };
+  const features = dltFrontFeatures(draw.front, history);
+  const augmented = appendFeatures(v, features, BASE_FEATURE_DIM);
+  return { rows: FEATURE_DIM, cols: 1, data: augmented };
 }
 
-export function encodeDltSequence(draws) {
-  return draws.map(encodeDltDraw);
+export function encodeDltSequence(draws, fullHistoryUpToFirst = []) {
+  const out = [];
+  const rolling = fullHistoryUpToFirst.slice();
+  for (const d of draws) {
+    out.push(encodeDltDraw(d, rolling));
+    rolling.push(d);
+  }
+  return out;
 }
 
 /** Target：前区 multi-hot + 后区 multi-hot。 */

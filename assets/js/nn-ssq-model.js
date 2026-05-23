@@ -30,26 +30,42 @@ import {
   createStackedLSTM, stackedForward, stackedBackward,
   serializeStack, deserializeStack,
 } from "./nn-stack.js";
+import { ssqRedFeatures, appendFeatures, FEATURE_AUG_DIM } from "./nn-features.js";
 
 export const RED_DIM = 33;
 export const BLUE_DIM = 16;
-export const FEATURE_DIM = RED_DIM + BLUE_DIM;
+export const BASE_FEATURE_DIM = RED_DIM + BLUE_DIM;
+export const FEATURE_DIM = BASE_FEATURE_DIM + FEATURE_AUG_DIM;  // 49 + 14 = 63
 export const BLUE_LOSS_WEIGHT = 6;
 
 /**
- * 把一期开奖编码为 49 维向量：
- *   [pos 0..32]: 红球 multi-hot；[pos 33..48]: 蓝球 one-hot
+ * 把一期开奖编码为 49+14 维向量：
+ *   [pos 0..32]: 红球 multi-hot
+ *   [pos 33..48]: 蓝球 one-hot
+ *   [pos 49..62]: 14 维手工统计特征（基于 history 计算）
+ *
+ * @param history 当前期之前的所有 draw（用于算遗漏 / 频率 / 熵）
+ *                如果不传或 []，特征会退化（不影响 multi-hot 部分）
  */
-export function encodeDraw(draw) {
-  const v = new Float32Array(FEATURE_DIM);
+export function encodeDraw(draw, history = []) {
+  const v = new Float32Array(BASE_FEATURE_DIM);
   for (const r of draw.reds) v[r - 1] = 1;
   v[RED_DIM + draw.blue - 1] = 1;
-  return { rows: FEATURE_DIM, cols: 1, data: v };
+  const features = ssqRedFeatures(draw.reds, history);
+  const augmented = appendFeatures(v, features, BASE_FEATURE_DIM);
+  return { rows: FEATURE_DIM, cols: 1, data: augmented };
 }
 
-/** 把多期序列编码：返回 [matrix per step]。 */
-export function encodeSequence(draws) {
-  return draws.map(encodeDraw);
+/** 把多期序列编码：每期都基于"截至前一期"的 history 计算特征。 */
+export function encodeSequence(draws, fullHistoryUpToFirst = []) {
+  const out = [];
+  // 维护 rolling history
+  const rolling = fullHistoryUpToFirst.slice();
+  for (const d of draws) {
+    out.push(encodeDraw(d, rolling));
+    rolling.push(d);
+  }
+  return out;
 }
 
 /** 取一期作为 target：red multi-hot (33×1) + blue one-hot (16×1) 单独返回。 */

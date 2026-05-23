@@ -21,12 +21,14 @@ export const DLT_RANDOM_BASELINE = {
   backHit2: 2 * 2 / 12,         // 0.3333
 };
 
-export function backtestDltModel(model, trainTail, testDraws, seqLen) {
-  let history = trainTail.slice(-seqLen);
+export function backtestDltModel(model, trainTail, testDraws, seqLen, historyBeforeTrainTail = []) {
+  let shortWindow = trainTail.slice(-seqLen);
+  let fullHist = [...historyBeforeTrainTail, ...trainTail];
   const records = [];
   for (const target of testDraws) {
-    const window = history.slice(-seqLen);
-    const seq = encodeDltSequence(window);
+    const window = shortWindow.slice(-seqLen);
+    const historyBeforeWindow = fullHist.slice(0, fullHist.length - window.length);
+    const seq = encodeDltSequence(window, historyBeforeWindow);
     const fwd = forwardDltModel(model, seq, { training: false });
 
     const top5 = topKFront(fwd.fProbs, FRONT_PICK).map(([n]) => n);
@@ -63,6 +65,19 @@ export function backtestDltModel(model, trainTail, testDraws, seqLen) {
     }
     bLL /= BACK_DIM;
 
+    let rawRedProbs = null;
+    if (model.calibration) {
+      const sigBare = (logits) => {
+        const out = new Float32Array(logits.data.length);
+        for (let i = 0; i < logits.data.length; i++) {
+          const x = Math.max(-50, Math.min(50, logits.data[i]));
+          out[i] = 1 / (1 + Math.exp(-x));
+        }
+        return out;
+      };
+      rawRedProbs = Array.from(sigBare(fwd.fLogits));
+    }
+
     records.push({
       issue: target.issue,
       realFront, realBack,
@@ -73,10 +88,12 @@ export function backtestDltModel(model, trainTail, testDraws, seqLen) {
       redHit6: fHit5,        // 命名兼容 SSQ 的 reliability 工具
       realReds: realFront,
       redProbs: Array.from(fwd.fProbs.data),
+      rawRedProbs,
       blueProbs: Array.from(fwd.bProbs.data),
       blueHit: bHit2 === BACK_PICK,
     });
-    history.push(target);
+    shortWindow.push(target);
+    fullHist.push(target);
   }
   return summarize(records);
 }

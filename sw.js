@@ -25,7 +25,7 @@
 //     c) 缓存命中前先校验 redirected==false，否则丢弃重新拉
 //     d) 静态资源（JS/CSS）走 cache-first，但同样校验 redirected
 
-const CACHE_VERSION = "ssq-lab-v12";
+const CACHE_VERSION = "ssq-lab-v13";
 const APP_SHELL = [
   "./assets/styles.css",
   "./assets/dlt-styles.css",
@@ -85,9 +85,14 @@ const APP_SHELL = [
   "./assets/js/nn-statistics.js",
   "./assets/js/nn-ensemble.js",
   "./assets/js/nn-calibration.js",
+  "./assets/js/nn-features.js",
+  "./assets/js/dlt-nn-ensemble.js",
   "./assets/js/lstm-controller.js",
   "./assets/js/model-storage.js",
   "./manifest.webmanifest",
+  // Demo 模型（点 ⚡ 一键加载体验时用，~200 KB 一份）
+  "./data/demo-models/ssq-lstm.json",
+  "./data/demo-models/dlt-lstm.json",
 ];
 
 self.addEventListener("install", (event) => {

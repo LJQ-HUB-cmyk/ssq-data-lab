@@ -464,6 +464,7 @@
               <label class="field"><span>Dropout 隐藏</span><input id="dltLstmDropHidden" type="number" min="0" max="0.5" step="0.05" value="0.2" /></label>
               <label class="field"><span>Dropout 输出</span><input id="dltLstmDropOut" type="number" min="0" max="0.5" step="0.05" value="0.2" /></label>
               <label class="field"><span>Label smoothing ε</span><input id="dltLstmLabelSmooth" type="number" min="0" max="0.2" step="0.01" value="0.05" /></label>
+              <label class="field"><span>Ensemble K</span><input id="dltLstmEnsembleK" type="number" min="1" max="8" value="1" /></label>
               <label class="field"><span>LCB λ（不确定性惩罚）</span><input id="dltLstmLcbLambda" type="number" min="0" max="3" step="0.1" value="0" /></label>
               <label class="field"><span>种子</span><input id="dltLstmSeed" type="text" placeholder="留空=随机" /></label>
             </div>
@@ -479,6 +480,7 @@
                 上传备份
                 <input id="dltLstmUploadFile" type="file" accept=".json,.lottery.json" style="display:none" />
               </label>
+              <button id="btnDltLstmLoadDemo" class="btn primary" type="button" style="margin-left:8px" title="无需训练，立即体验">⚡ 加载 Demo 模型</button>
             </div>
             <div class="hint">大乐透专属 LSTM：47 维输入（35 前 + 12 后），双 sigmoid 输出（multi-label BCE）。完整堆叠 + dropout + 早停 + best-on-val 还原；浏览器本地训练。<br/>
             <strong>存储升级</strong>：从 localStorage 改为 IndexedDB + 文件备份。<strong>建议训练后立即下载备份</strong>。</div>

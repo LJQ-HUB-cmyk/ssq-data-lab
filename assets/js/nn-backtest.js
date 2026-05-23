@@ -37,14 +37,20 @@ import { createRng } from "./rng.js";
  * @param trainTail 训练集最后 seqLen-1 期（用作初始上下文）
  * @param testDraws 测试集（按时间升序）
  * @param seqLen 序列长度
+ * @param historyBeforeTrainTail trainTail 之前的 ALL 历史（用于算特征中的遗漏/熵；缺省 []）
  */
-export function backtestModel(model, trainTail, testDraws, seqLen) {
-  // 维护 rolling 窗口
-  let history = trainTail.slice(-seqLen);
+export function backtestModel(model, trainTail, testDraws, seqLen, historyBeforeTrainTail = []) {
+  // 维护两份 history：
+  //   shortWindow：最近 seqLen 期（喂给 LSTM）
+  //   fullHist：完整历史（用于特征计算中的"截至此刻"统计）
+  let shortWindow = trainTail.slice(-seqLen);
+  let fullHist = [...historyBeforeTrainTail, ...trainTail];
   const records = [];
   for (const target of testDraws) {
-    const window = history.slice(-seqLen);
-    const seq = encodeSequence(window);
+    const window = shortWindow.slice(-seqLen);
+    // window 第一期之前的 history = fullHist 减掉 window 部分
+    const historyBeforeWindow = fullHist.slice(0, fullHist.length - window.length);
+    const seq = encodeSequence(window, historyBeforeWindow);
     const fwd = forwardModel(model, seq, { training: false });
 
     const top6Red = topKRed(fwd.redProbs, 6).map(([n]) => n);
@@ -81,6 +87,33 @@ export function backtestModel(model, trainTail, testDraws, seqLen) {
       blueLL -= y * Math.log(p);
     }
 
+    // 同时计算 raw probs（无 calibration）用于 reliability 对比
+    let rawRedProbs = null, rawBlueProbs = null;
+    if (model.calibration) {
+      const sigBare = (logits) => {
+        const out = new Float32Array(logits.data.length);
+        for (let i = 0; i < logits.data.length; i++) {
+          const x = Math.max(-50, Math.min(50, logits.data[i]));
+          out[i] = 1 / (1 + Math.exp(-x));
+        }
+        return out;
+      };
+      const softBare = (logits) => {
+        const out = new Float32Array(logits.data.length);
+        let max = -Infinity;
+        for (let i = 0; i < logits.data.length; i++) if (logits.data[i] > max) max = logits.data[i];
+        let sum = 0;
+        for (let i = 0; i < logits.data.length; i++) {
+          out[i] = Math.exp(logits.data[i] - max);
+          sum += out[i];
+        }
+        for (let i = 0; i < logits.data.length; i++) out[i] /= Math.max(1e-30, sum);
+        return out;
+      };
+      rawRedProbs = Array.from(sigBare(fwd.redLogits));
+      rawBlueProbs = Array.from(softBare(fwd.blueLogits));
+    }
+
     records.push({
       issue: target.issue,
       realReds, realBlue: target.blue,
@@ -91,10 +124,12 @@ export function backtestModel(model, trainTail, testDraws, seqLen) {
       brier, redLL, blueLL,
       redProbs: Array.from(fwd.redProbs.data),
       blueProbs: Array.from(fwd.blueProbs.data),
+      rawRedProbs, rawBlueProbs,
     });
 
     // 推进窗口
-    history.push(target);
+    shortWindow.push(target);
+    fullHist.push(target);
   }
   return summarize(records);
 }

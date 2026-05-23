@@ -25,9 +25,12 @@ export function buildSamples(draws, seqLen) {
   for (let t = seqLen; t < draws.length; t++) {
     const window = draws.slice(t - seqLen, t);
     const target = draws[t];
+    // 给 encodeSequence 传"截至 window 第一期之前"的所有 history，
+    // 让每一期内部能基于真实历史算特征
+    const historyBeforeWindow = draws.slice(0, t - seqLen);
     samples.push({
       issue: target.issue,
-      sequence: encodeSequence(window),
+      sequence: encodeSequence(window, historyBeforeWindow),
       target: encodeTarget(target),
       raw: { window, target },
     });

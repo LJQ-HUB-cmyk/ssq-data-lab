@@ -52,6 +52,7 @@ export function setupLstmController(allDraws) {
   $("#btnLstmSave")?.addEventListener("click", onSave);
   $("#btnLstmLoad")?.addEventListener("click", onLoad);
   $("#btnLstmDownload")?.addEventListener("click", onDownload);
+  $("#btnLstmLoadDemo")?.addEventListener("click", onLoadDemo);
   $("#lstmUploadFile")?.addEventListener("change", (e) => {
     const f = e.target.files?.[0];
     if (f) onUploadFile(f);
@@ -186,7 +187,9 @@ async function onTrain() {
 function onPredict() {
   if (!state.model && !state.ensemble) return;
   const window = state.draws.slice(-state.seqLen);
-  const seq = encodeSequence(window);
+  // 特征需要"截至 window 第一期之前"的全历史
+  const historyBeforeWindow = state.draws.slice(0, state.draws.length - state.seqLen);
+  const seq = encodeSequence(window, historyBeforeWindow);
 
   let redProbs, blueProbs, redStd = null, blueStd = null;
   if (state.ensemble) {
@@ -308,12 +311,13 @@ async function onBacktest() {
     if (splitIdx < seqLen) throw new Error("回测窗口不足");
     const trainTail = state.draws.slice(splitIdx - seqLen, splitIdx);
     const testDraws = state.draws.slice(splitIdx);
+    const historyBeforeTrainTail = state.draws.slice(0, splitIdx - seqLen);
 
     // LSTM（单模型 or ensemble 第一个）；如果有 ensemble，再额外算一个 ensemble backtest
-    const lstmRes = backtestModel(sourceModel, trainTail, testDraws, seqLen);
+    const lstmRes = backtestModel(sourceModel, trainTail, testDraws, seqLen, historyBeforeTrainTail);
     let ensembleRes = null;
     if (state.ensemble && state.ensemble.members.length > 1) {
-      ensembleRes = backtestEnsemble(state.ensemble.members, trainTail, testDraws, seqLen);
+      ensembleRes = backtestEnsemble(state.ensemble.members, trainTail, testDraws, seqLen, historyBeforeTrainTail);
     }
 
     const freqRes = backtestFreqBaseline(state.draws.slice(0, splitIdx), testDraws);
@@ -331,12 +335,14 @@ async function onBacktest() {
   }
 }
 
-function backtestEnsemble(members, trainTail, testDraws, seqLen) {
-  let history = trainTail.slice(-seqLen);
+function backtestEnsemble(members, trainTail, testDraws, seqLen, historyBeforeTrainTail = []) {
+  let shortWindow = trainTail.slice(-seqLen);
+  let fullHist = [...historyBeforeTrainTail, ...trainTail];
   const records = [];
   for (const target of testDraws) {
-    const window = history.slice(-seqLen);
-    const seq = encodeSequence(window);
+    const window = shortWindow.slice(-seqLen);
+    const historyBeforeWindow = fullHist.slice(0, fullHist.length - window.length);
+    const seq = encodeSequence(window, historyBeforeWindow);
     const out = ensembleForward(members, seq);
     const top6 = topKRed(out.redProbs, 6).map(([n]) => n);
     const top8 = topKRed(out.redProbs, 8).map(([n]) => n);
@@ -372,7 +378,8 @@ function backtestEnsemble(members, trainTail, testDraws, seqLen) {
       redProbs: Array.from(out.redProbs.data),
       blueProbs: Array.from(out.blueProbs.data),
     });
-    history.push(target);
+    shortWindow.push(target);
+    fullHist.push(target);
   }
   const summary = {
     n: records.length,
@@ -467,9 +474,19 @@ function renderBacktestTable(lstm, ensemble, freq, bayes, uniform, n) {
     ? `LSTM 与均匀随机的 hit@6 差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>包含 0</strong>，差异在统计上不显著——这正是预期：彩票是 i.i.d. 随机抽取，没有可学习的时间规律。`
     : `LSTM 与均匀随机的 hit@6 差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>不含 0</strong>。但要警惕：(1) ${n} 期的局部偏差可能是数据集偏差，不一定泛化；(2) 即便差异真实，也可能源于硬件物理偏差或 multi-seed 选最优结果，不构成可重复的可预测性。`;
 
-  // Reliability diagram for LSTM
+  // Reliability diagram for LSTM —— calibrated vs raw 对比
   const reliab = reliabilityDiagram(lstm.records, { bins: 10 });
-  const reliabSvg = renderReliabilityDiagram(reliab);
+  // raw 用 rawRedProbs（如果有）
+  const rawRecords = lstm.records.map((r) => ({
+    realReds: r.realReds,
+    redProbs: r.rawRedProbs || r.redProbs, // 没 calibration 就退化成同一份
+  }));
+  const reliabRaw = reliabilityDiagram(rawRecords, { bins: 10 });
+  const hasCalibration = !!sourceModel.calibration;
+  const reliabSvg = renderReliabilityDiagram(reliab, hasCalibration ? reliabRaw : null);
+  const eceCompare = hasCalibration
+    ? `ECE: raw <strong class="mono">${reliabRaw.ece.toFixed(4)}</strong> → calibrated <strong class="mono">${reliab.ece.toFixed(4)}</strong>（${reliabRaw.ece > reliab.ece ? "↓" : "↑"} ${Math.abs((reliabRaw.ece - reliab.ece) / Math.max(1e-6, reliabRaw.ece) * 100).toFixed(0)}%）`
+    : `ECE = ${reliab.ece.toFixed(4)}`;
 
   return `
     <div class="bt-table-wrap">
@@ -492,40 +509,80 @@ function renderBacktestTable(lstm, ensemble, freq, bayes, uniform, n) {
       <div class="callout-body">${verdict}</div>
     </div>
     <div class="card" style="margin-top:14px; padding: var(--space-4)">
-      <div class="card-title">校准曲线 · Reliability Diagram <span class="card-num">ECE = ${reliab.ece.toFixed(4)}</span></div>
+      <div class="card-title">校准曲线 · Reliability Diagram <span class="card-num">${eceCompare}</span></div>
       ${reliabSvg}
-      <div class="hint">点越接近对角线 y=x 越好——表示 "概率 20% 的号码大约真有 20% 的命中率"。完美校准 ECE = 0。</div>
+      <div class="hint">点越接近对角线 y=x 越好——表示 "概率 20% 的号码大约真有 20% 的命中率"。${hasCalibration ? "灰色虚线 = 训练后未校准；彩色 = temperature scaling 校准后。完美校准 ECE = 0。" : "完美校准 ECE = 0。"}</div>
     </div>
   `;
 }
 
-function renderReliabilityDiagram(reliab) {
-  const W = 380, H = 220;
-  const padL = 36, padR = 12, padT = 12, padB = 28;
+/**
+ * Reliability diagram 升级版：同时画 calibrated（彩色实线）和 raw（灰色虚线）。
+ * @param reliab calibrated 数据
+ * @param reliabRaw 可选的 raw 数据；缺省时只画一条
+ */
+function renderReliabilityDiagram(reliab, reliabRaw = null) {
+  const W = 380, H = 240;
+  const padL = 36, padR = 12, padT = 18, padB = 36;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
-  const dots = reliab.points.map((p) => {
-    if (p.observedFreq == null) return "";
-    const cx = padL + p.avgPred * innerW;
-    const cy = padT + (1 - p.observedFreq) * innerH;
-    const r = 2 + Math.min(8, Math.sqrt(p.count) * 0.5);
-    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="var(--blue)" opacity="0.78"/>`;
-  }).join("");
+  const sx = (v) => padL + v * innerW;
+  const sy = (v) => padT + (1 - v) * innerH;
+
+  const renderPoints = (points, color, fillOpacity = 0.78, withLine = true) => {
+    const validPts = points.filter(p => p.observedFreq != null && p.count > 0);
+    const dots = validPts.map((p) => {
+      const r = 2 + Math.min(8, Math.sqrt(p.count) * 0.5);
+      return `<circle cx="${sx(p.avgPred).toFixed(1)}" cy="${sy(p.observedFreq).toFixed(1)}" r="${r.toFixed(1)}" fill="${color}" opacity="${fillOpacity}"/>`;
+    }).join("");
+    const line = withLine && validPts.length > 1
+      ? `<polyline points="${validPts.map(p => `${sx(p.avgPred).toFixed(1)},${sy(p.observedFreq).toFixed(1)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.6"/>`
+      : "";
+    return line + dots;
+  };
+
   const refLine = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4"/>`;
   const xAxis = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
   const yAxis = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
   const xLabel = `<text x="${padL + innerW / 2}" y="${H - 6}" text-anchor="middle" font-size="10" font-family="JetBrains Mono, monospace" fill="rgba(255,255,255,.6)">预测概率（avg per bucket）</text>`;
   const yLabel = `<text x="${padL - 28}" y="${padT + innerH / 2}" text-anchor="middle" font-size="10" font-family="JetBrains Mono, monospace" fill="rgba(255,255,255,.6)" transform="rotate(-90 ${padL - 28} ${padT + innerH / 2})">观察到的命中率</text>`;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((v) => {
-    const x = padL + v * innerW;
-    const y = padT + (1 - v) * innerH;
     return `
-      <text x="${x}" y="${padT + innerH + 14}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
-      <text x="${padL - 4}" y="${y + 3}" text-anchor="end" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
+      <text x="${sx(v)}" y="${padT + innerH + 14}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
+      <text x="${padL - 4}" y="${sy(v) + 3}" text-anchor="end" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
     `;
   }).join("");
+
+  // legend
+  const hasRaw = reliabRaw && reliabRaw.points.some(p => p.observedFreq != null && p.count > 0);
+  const legend = hasRaw
+    ? `
+      <g transform="translate(${padL + 8}, ${padT + 4})">
+        <line x1="0" y1="6" x2="14" y2="6" stroke="rgba(180,180,180,.6)" stroke-dasharray="2 2"/>
+        <circle cx="22" cy="6" r="3" fill="rgba(180,180,180,.6)"/>
+        <text x="30" y="9" font-size="9" fill="rgba(255,255,255,.65)" font-family="JetBrains Mono, monospace">raw</text>
+        <line x1="68" y1="6" x2="82" y2="6" stroke="var(--acid)" stroke-width="1.5"/>
+        <circle cx="90" cy="6" r="3" fill="var(--acid)"/>
+        <text x="98" y="9" font-size="9" fill="rgba(255,255,255,.65)" font-family="JetBrains Mono, monospace">calibrated</text>
+      </g>
+    ` : "";
+
+  const rawSvg = hasRaw
+    ? `<g opacity="0.55">${renderPoints(reliabRaw.points, "rgba(180,180,180,.85)", 0.55, false)}</g>`
+    : "";
+  // raw 用虚线连
+  const rawLine = hasRaw
+    ? (() => {
+      const pts = reliabRaw.points.filter(p => p.observedFreq != null && p.count > 0)
+        .map(p => `${sx(p.avgPred).toFixed(1)},${sy(p.observedFreq).toFixed(1)}`).join(" ");
+      return `<polyline points="${pts}" fill="none" stroke="rgba(180,180,180,.55)" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+    })()
+    : "";
+
+  const calSvg = renderPoints(reliab.points, "var(--acid)", 0.85, true);
+
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
-    ${xAxis}${yAxis}${refLine}${ticks}${xLabel}${yLabel}${dots}
+    ${xAxis}${yAxis}${refLine}${ticks}${xLabel}${yLabel}${rawLine}${rawSvg}${calSvg}${legend}
   </svg>`;
 }
 
@@ -636,6 +693,33 @@ function onUploadFile(file) {
       modelStorage.save(STORAGE_KEY, payload).catch(() => {});
     })
     .catch((e) => toast(`导入失败：${e.message}`));
+}
+
+/** 一键加载预训练 demo 模型（不需要训练）。 */
+async function onLoadDemo() {
+  setStatus("加载 demo 模型…");
+  try {
+    const res = await fetch("./data/demo-models/ssq-lstm.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const payload = await res.json();
+    applyLoadedPayload(payload, false);
+    // 自动 build val samples 让"回测"按钮可用
+    if (state.draws.length > payload.seqLen + 20) {
+      const samples = buildSamples(state.draws, payload.seqLen);
+      const splitIdx = Math.floor(samples.length * 0.85);
+      state.trainSamples = samples.slice(0, splitIdx);
+      state.valSamples = samples.slice(splitIdx);
+      $("#btnLstmBacktest").disabled = false;
+    }
+    setStatus(
+      `已加载 demo 模型（${payload.trainedOnIssues?.from} – ${payload.trainedOnIssues?.to}，${payload.hiddenDim}H × ${payload.numLayers}L）。可直接预测 / 回测，无需训练。`,
+      "ok"
+    );
+    toast("Demo 模型加载完成");
+  } catch (e) {
+    setStatus(`Demo 加载失败：${e.message}`, "bad");
+    toast(`Demo 加载失败：${e.message}`);
+  }
 }
 
 function applyLoadedPayload(payload, silent) {

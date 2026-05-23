@@ -15,9 +15,10 @@ export function buildDltSamples(draws, seqLen) {
   for (let t = seqLen; t < draws.length; t++) {
     const window = draws.slice(t - seqLen, t);
     const target = draws[t];
+    const historyBeforeWindow = draws.slice(0, t - seqLen);
     samples.push({
       issue: target.issue,
-      sequence: encodeDltSequence(window),
+      sequence: encodeDltSequence(window, historyBeforeWindow),
       target: encodeDltTarget(target),
       raw: { window, target },
     });

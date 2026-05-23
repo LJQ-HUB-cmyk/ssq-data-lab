@@ -9,6 +9,7 @@ import {
   FRONT_DIM, BACK_DIM, FRONT_PICK, BACK_PICK,
 } from "./dlt-nn-model.js";
 import { trainDltModel, buildDltSamples } from "./dlt-nn-trainer.js";
+import { trainDltEnsemble, dltEnsembleForward } from "./dlt-nn-ensemble.js";
 import {
   backtestDltModel, backtestDltUniformBaseline,
   backtestDltFreqBaseline, backtestDltBayesBaseline,
@@ -48,6 +49,7 @@ export function setupDltLstmController(allDraws) {
   $("#btnDltLstmSave")?.addEventListener("click", onSave);
   $("#btnDltLstmLoad")?.addEventListener("click", onLoad);
   $("#btnDltLstmDownload")?.addEventListener("click", onDownload);
+  $("#btnDltLstmLoadDemo")?.addEventListener("click", onLoadDemo);
   $("#dltLstmUploadFile")?.addEventListener("change", (e) => {
     const f = e.target.files?.[0];
     if (f) onUploadFile(f);
@@ -79,6 +81,7 @@ async function onTrain() {
     const dropoutOutput = clampNum("#dltLstmDropOut", 0, 0.5, 0.2);
     const labelSmoothing = clampNum("#dltLstmLabelSmooth", 0, 0.2, 0.05);
     const lcbLambda = clampNum("#dltLstmLcbLambda", 0, 3, 0);
+    const ensembleK = clampInt("#dltLstmEnsembleK", 1, 8, 1);
     const seedStr = $("#dltLstmSeed")?.value?.trim() || `dlt-train-${Date.now()}`;
     state.seqLen = seqLen;
     state.lcbLambda = lcbLambda;
@@ -90,35 +93,61 @@ async function onTrain() {
     state.trainSamples = samples.slice(0, splitIdx);
     state.valSamples = samples.slice(splitIdx);
 
-    const arch = `H=${hidden} · L=${numLayers} · drop[in/h/out]=${dropoutInput}/${dropoutHidden}/${dropoutOutput}`;
+    const arch = `H=${hidden} · L=${numLayers} · drop[in/h/out]=${dropoutInput}/${dropoutHidden}/${dropoutOutput} · K=${ensembleK}`;
     setStatus(`训练：${state.trainSamples.length} train / ${state.valSamples.length} val · T=${seqLen} · ${arch}`);
     initCurves();
     resetSeries();
 
-    const memberRng = createRng(seedStr).next;
-    state.model = createDltModel({
-      hiddenDim: hidden, numLayers,
-      dropoutInput, dropoutHidden, dropoutOutput,
-      rng: memberRng,
-    });
     const t0 = Date.now();
-    const result = await trainDltModel(state.model, state.trainSamples, state.valSamples, {
+    const baseModelOpts = { hiddenDim: hidden, numLayers, dropoutInput, dropoutHidden, dropoutOutput };
+    const baseTrainOpts = {
       epochs, batchSize, lr,
       gradClip: 5, patience: 6, weightDecay: 1e-5,
       labelSmoothing,
-      rng: memberRng,
-      onBatch: (b) => {
-        if (b.totalBatches) setProgress(b.batch / b.totalBatches);
-        if (b.nan) setStatus(`epoch ${b.epoch + 1} batch ${b.batch}: NaN 跳过`, "warn");
-      },
-      onEpoch: (e) => {
-        appendCurve(e);
-        setStatus(`epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)} · 后 hit@2 ${e.valBackHit2.toFixed(3)}`);
-        setProgress((e.epoch + 1) / e.totalEpochs);
-      },
-      shouldStop: () => state.shouldStop,
-    });
-    state.history = result.history;
+    };
+
+    if (ensembleK > 1) {
+      // Ensemble 模式
+      const result = await trainDltEnsemble(state.trainSamples, state.valSamples, {
+        K: ensembleK,
+        seedBase: seedStr,
+        modelOpts: baseModelOpts,
+        trainOpts: {
+          ...baseTrainOpts,
+          onBatch: (b) => {
+            if (b.totalBatches) setProgress((b.member / b.totalMembers) + (b.batch / b.totalBatches / b.totalMembers));
+          },
+          onEpoch: (e) => {
+            appendCurve(e);
+            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)}`);
+          },
+        },
+        shouldStop: () => state.shouldStop,
+      });
+      state.ensemble = { members: result.members, histories: result.histories };
+      state.model = result.members[0]; // 用第一个作为单模型 fallback
+      state.history = result.histories[result.histories.length - 1];
+    } else {
+      // 单模型
+      state.ensemble = null;
+      const memberRng = createRng(seedStr).next;
+      state.model = createDltModel({ ...baseModelOpts, rng: memberRng });
+      const result = await trainDltModel(state.model, state.trainSamples, state.valSamples, {
+        ...baseTrainOpts,
+        rng: memberRng,
+        onBatch: (b) => {
+          if (b.totalBatches) setProgress(b.batch / b.totalBatches);
+          if (b.nan) setStatus(`epoch ${b.epoch + 1} batch ${b.batch}: NaN 跳过`, "warn");
+        },
+        onEpoch: (e) => {
+          appendCurve(e);
+          setStatus(`epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)} · 后 hit@2 ${e.valBackHit2.toFixed(3)}`);
+          setProgress((e.epoch + 1) / e.totalEpochs);
+        },
+        shouldStop: () => state.shouldStop,
+      });
+      state.history = result.history;
+    }
 
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     const bestLoss = state.history ? Math.min(...state.history.valLoss).toFixed(4) : "—";
@@ -141,12 +170,48 @@ async function onTrain() {
 }
 
 function onPredict() {
-  if (!state.model) return;
+  if (!state.model && !state.ensemble) return;
   const window = state.draws.slice(-state.seqLen);
-  const seq = encodeDltSequence(window);
-  const fwd = forwardDltModel(state.model, seq, { training: false });
-  const top5 = topKFront(fwd.fProbs, FRONT_PICK);
-  const top2 = topKBack(fwd.bProbs, BACK_PICK);
+  const historyBeforeWindow = state.draws.slice(0, state.draws.length - state.seqLen);
+  const seq = encodeDltSequence(window, historyBeforeWindow);
+
+  let fProbs, bProbs, fStd = null, bStd = null;
+  if (state.ensemble) {
+    const out = dltEnsembleForward(state.ensemble.members, seq);
+    fProbs = out.fProbs;
+    bProbs = out.bProbs;
+    fStd = out.fStd;
+    bStd = out.bStd;
+  } else {
+    const fwd = forwardDltModel(state.model, seq, { training: false });
+    fProbs = fwd.fProbs;
+    bProbs = fwd.bProbs;
+  }
+
+  // LCB ranking 当 ensemble + λ>0
+  const lambda = state.lcbLambda || 0;
+  let top5;
+  if (state.ensemble && fStd && lambda > 0) {
+    const arr = [];
+    for (let i = 0; i < FRONT_DIM; i++) {
+      arr.push([i + 1, fProbs.data[i] - lambda * fStd.data[i], fProbs.data[i], fStd.data[i]]);
+    }
+    arr.sort((a, b) => b[1] - a[1]);
+    top5 = arr.slice(0, FRONT_PICK).map(([n, , mean]) => [n, mean]);
+  } else {
+    top5 = topKFront(fProbs, FRONT_PICK);
+  }
+  let top2;
+  if (state.ensemble && bStd && lambda > 0) {
+    const arr = [];
+    for (let i = 0; i < BACK_DIM; i++) {
+      arr.push([i + 1, bProbs.data[i] - lambda * bStd.data[i], bProbs.data[i], bStd.data[i]]);
+    }
+    arr.sort((a, b) => b[1] - a[1]);
+    top2 = arr.slice(0, BACK_PICK).map(([n, , mean]) => [n, mean]);
+  } else {
+    top2 = topKBack(bProbs, BACK_PICK);
+  }
 
   const card = $("#dltLstmPredictionCard");
   const body = $("#dltLstmPredictionBody");
@@ -154,36 +219,46 @@ function onPredict() {
 
   const fBars = [];
   let fMax = 0;
-  for (let i = 0; i < FRONT_DIM; i++) fMax = Math.max(fMax, fwd.fProbs.data[i]);
+  for (let i = 0; i < FRONT_DIM; i++) fMax = Math.max(fMax, fProbs.data[i]);
   for (let i = 0; i < FRONT_DIM; i++) {
-    const p = fwd.fProbs.data[i];
+    const p = fProbs.data[i];
     const w = (p / Math.max(1e-9, fMax)) * 100;
     const isPicked = top5.some(([n]) => n === i + 1);
+    const stdInfo = fStd
+      ? ` <span class="muted fine">±${(fStd.data[i] * 100).toFixed(1)}%</span>`
+      : "";
     fBars.push(`
       <div class="prob-row">
         <span class="ball front ${isPicked ? "" : "muted-ball"}" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(i + 1)}</span>
         <span class="prob-bar"><i style="width:${w.toFixed(1)}%"></i></span>
-        <span class="mono prob-val">${(p * 100).toFixed(1)}%</span>
+        <span class="mono prob-val">${(p * 100).toFixed(1)}%${stdInfo}</span>
       </div>
     `);
   }
   const bRanked = [];
-  for (let i = 0; i < BACK_DIM; i++) bRanked.push([i + 1, fwd.bProbs.data[i]]);
+  for (let i = 0; i < BACK_DIM; i++) bRanked.push([i + 1, bProbs.data[i]]);
   bRanked.sort((a, b) => b[1] - a[1]);
   const bBars = bRanked.map(([n, p]) => {
     const isPicked = top2.some(([m]) => m === n);
+    const stdInfo = bStd
+      ? ` <span class="muted fine">±${(bStd.data[n - 1] * 100).toFixed(1)}%</span>`
+      : "";
     return `
       <div class="prob-row">
         <span class="ball back ${isPicked ? "" : "muted-ball"}" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(n)}</span>
         <span class="prob-bar"><i style="width:${(p * 100).toFixed(1)}%"></i></span>
-        <span class="mono prob-val">${(p * 100).toFixed(1)}%</span>
+        <span class="mono prob-val">${(p * 100).toFixed(1)}%${stdInfo}</span>
       </div>
     `;
   }).join("");
 
+  const ensembleBadge = state.ensemble
+    ? `<span class="chip chip-ok" style="margin-left:8px">${state.ensemble.members.length} 模型集成${lambda > 0 ? ` · LCB λ=${lambda}` : ""}</span>`
+    : "";
+
   body.innerHTML = `
     <div class="prediction-pick">
-      <div class="prediction-label">Top-5 前 + Top-2 后</div>
+      <div class="prediction-label">Top-5 前 + Top-2 后${ensembleBadge}</div>
       <div class="balls">
         ${top5.map(([n]) => `<span class="ball front">${pad2(n)}</span>`).join("")}
         ${top2.map(([n], idx) => `<span class="ball back${idx === 0 ? " plus" : ""}">${pad2(n)}</span>`).join("")}
@@ -191,11 +266,11 @@ function onPredict() {
     </div>
     <div class="prediction-cols">
       <div>
-        <div class="card-title">前区 35 路概率</div>
+        <div class="card-title">前区 35 路概率${fStd ? "（± 集成 std）" : ""}</div>
         ${fBars.join("")}
       </div>
       <div>
-        <div class="card-title">后区 12 路概率</div>
+        <div class="card-title">后区 12 路概率${bStd ? "（± 集成 std）" : ""}</div>
         ${bBars}
       </div>
     </div>
@@ -224,8 +299,9 @@ async function onBacktest() {
     if (splitIdx < seqLen) throw new Error("回测窗口不足");
     const trainTail = state.draws.slice(splitIdx - seqLen, splitIdx);
     const testDraws = state.draws.slice(splitIdx);
+    const historyBeforeTrainTail = state.draws.slice(0, splitIdx - seqLen);
 
-    const lstmRes = backtestDltModel(state.model, trainTail, testDraws, seqLen);
+    const lstmRes = backtestDltModel(state.model, trainTail, testDraws, seqLen, historyBeforeTrainTail);
     const freqRes = backtestDltFreqBaseline(state.draws.slice(0, splitIdx), testDraws);
     const bayesRes = backtestDltBayesBaseline(state.draws.slice(0, splitIdx), testDraws);
     const uniformRes = backtestDltUniformBaseline(testDraws, 80, "uniform-dlt");
@@ -305,6 +381,15 @@ function renderBacktestTable(lstm, freq, bayes, uniform, n) {
     : `差值 95% CI = [${paired.lower.toFixed(3)}, ${paired.upper.toFixed(3)}] <strong>不含 0</strong>。但要警惕：(1) ${n} 期的局部偏差不一定泛化；(2) 即便差异真实，也不构成可重复的预测能力。`;
 
   const reliab = reliabilityDiagram(lstm.records, { bins: 10 });
+  const rawRecords = lstm.records.map((r) => ({
+    realReds: r.realReds,
+    redProbs: r.rawRedProbs || r.redProbs,
+  }));
+  const reliabRaw = reliabilityDiagram(rawRecords, { bins: 10 });
+  const hasCalibration = !!state.model?.calibration;
+  const eceCompare = hasCalibration
+    ? `ECE: raw <strong class="mono">${reliabRaw.ece.toFixed(4)}</strong> → calibrated <strong class="mono">${reliab.ece.toFixed(4)}</strong>`
+    : `ECE = ${reliab.ece.toFixed(4)}`;
 
   return `
     <div class="bt-table-wrap">
@@ -327,37 +412,55 @@ function renderBacktestTable(lstm, freq, bayes, uniform, n) {
       <div class="callout-body">${verdict}</div>
     </div>
     <div class="card" style="margin-top:14px; padding: var(--space-4)">
-      <div class="card-title">校准曲线 · Reliability Diagram <span class="card-num">ECE = ${reliab.ece.toFixed(4)}</span></div>
-      ${renderReliab(reliab)}
-      <div class="hint">点越接近对角线 y=x 越好。完美校准 ECE = 0。</div>
+      <div class="card-title">校准曲线 · Reliability Diagram <span class="card-num">${eceCompare}</span></div>
+      ${renderReliab(reliab, hasCalibration ? reliabRaw : null)}
+      <div class="hint">点越接近对角线 y=x 越好。${hasCalibration ? "灰色虚线 = 训练后未校准；绿色 = temperature scaling 校准后。" : "完美校准 ECE = 0。"}</div>
     </div>
   `;
 }
 
-function renderReliab(reliab) {
-  const W = 380, H = 220;
-  const padL = 36, padR = 12, padT = 12, padB = 28;
+function renderReliab(reliab, reliabRaw = null) {
+  const W = 380, H = 240;
+  const padL = 36, padR = 12, padT = 18, padB = 36;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
-  const dots = reliab.points.map((p) => {
-    if (p.observedFreq == null) return "";
-    const cx = padL + p.avgPred * innerW;
-    const cy = padT + (1 - p.observedFreq) * innerH;
-    const r = 2 + Math.min(8, Math.sqrt(p.count) * 0.5);
-    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="var(--dlt-front)" opacity="0.78"/>`;
-  }).join("");
+  const sx = (v) => padL + v * innerW;
+  const sy = (v) => padT + (1 - v) * innerH;
+  const renderPoints = (points, color, opacity, withLine) => {
+    const valid = points.filter(p => p.observedFreq != null && p.count > 0);
+    const dots = valid.map((p) => {
+      const r = 2 + Math.min(8, Math.sqrt(p.count) * 0.5);
+      return `<circle cx="${sx(p.avgPred).toFixed(1)}" cy="${sy(p.observedFreq).toFixed(1)}" r="${r.toFixed(1)}" fill="${color}" opacity="${opacity}"/>`;
+    }).join("");
+    const line = withLine && valid.length > 1
+      ? `<polyline points="${valid.map(p => `${sx(p.avgPred).toFixed(1)},${sy(p.observedFreq).toFixed(1)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.6"/>`
+      : "";
+    return line + dots;
+  };
   const refLine = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4"/>`;
   const xAxis = `<line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
   const yAxis = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>`;
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((v) => {
-    const x = padL + v * innerW;
-    const y = padT + (1 - v) * innerH;
-    return `
-      <text x="${x}" y="${padT + innerH + 14}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
-      <text x="${padL - 4}" y="${y + 3}" text-anchor="end" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
-    `;
-  }).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${xAxis}${yAxis}${refLine}${ticks}${dots}</svg>`;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((v) => `
+    <text x="${sx(v)}" y="${padT + innerH + 14}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
+    <text x="${padL - 4}" y="${sy(v) + 3}" text-anchor="end" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(2)}</text>
+  `).join("");
+
+  const hasRaw = reliabRaw && reliabRaw.points.some(p => p.observedFreq != null && p.count > 0);
+  const rawLine = hasRaw
+    ? `<polyline points="${reliabRaw.points.filter(p => p.observedFreq != null && p.count > 0).map(p => `${sx(p.avgPred).toFixed(1)},${sy(p.observedFreq).toFixed(1)}`).join(" ")}" fill="none" stroke="rgba(180,180,180,.55)" stroke-width="1.2" stroke-dasharray="3 3"/>`
+    : "";
+  const rawDots = hasRaw ? renderPoints(reliabRaw.points, "rgba(180,180,180,.85)", 0.55, false) : "";
+  const calSvg = renderPoints(reliab.points, "var(--dlt-front)", 0.85, true);
+  const legend = hasRaw
+    ? `<g transform="translate(${padL + 8}, ${padT + 4})">
+        <line x1="0" y1="6" x2="14" y2="6" stroke="rgba(180,180,180,.6)" stroke-dasharray="2 2"/>
+        <text x="20" y="9" font-size="9" fill="rgba(255,255,255,.65)" font-family="JetBrains Mono, monospace">raw</text>
+        <line x1="58" y1="6" x2="72" y2="6" stroke="var(--dlt-front)" stroke-width="1.5"/>
+        <text x="78" y="9" font-size="9" fill="rgba(255,255,255,.65)" font-family="JetBrains Mono, monospace">calibrated</text>
+      </g>`
+    : "";
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${xAxis}${yAxis}${refLine}${ticks}${rawLine}${rawDots}${calSvg}${legend}</svg>`;
 }
 
 /* ============================================================
@@ -456,6 +559,31 @@ function onUploadFile(file) {
       modelStorage.save(STORAGE_KEY, payload).catch(() => {});
     })
     .catch((e) => toast(`导入失败：${e.message}`));
+}
+
+async function onLoadDemo() {
+  setStatus("加载 demo 模型…");
+  try {
+    const res = await fetch("./data/demo-models/dlt-lstm.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const payload = await res.json();
+    applyDltLoadedPayload(payload, false);
+    if (state.draws.length > payload.seqLen + 20) {
+      const samples = buildDltSamples(state.draws, payload.seqLen);
+      const splitIdx = Math.floor(samples.length * 0.85);
+      state.trainSamples = samples.slice(0, splitIdx);
+      state.valSamples = samples.slice(splitIdx);
+      $("#btnDltLstmBacktest").disabled = false;
+    }
+    setStatus(
+      `已加载 demo 模型（${payload.trainedOnIssues?.from} – ${payload.trainedOnIssues?.to}，${payload.hiddenDim}H × ${payload.numLayers}L）。可直接预测 / 回测，无需训练。`,
+      "ok"
+    );
+    toast("Demo 模型加载完成");
+  } catch (e) {
+    setStatus(`Demo 加载失败：${e.message}`, "bad");
+    toast(`Demo 加载失败：${e.message}`);
+  }
 }
 
 /* ============================================================
