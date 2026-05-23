@@ -86,3 +86,9 @@ jobs:
           PUPPETEER_EXECUTABLE_PATH: ${{ env.PUPPETEER_EXECUTABLE_PATH }}
         run: node tools/check_drift_monitor.mjs
         timeout-minutes: 3
+
+      - name: Rational Betting (SSQ + DLT)
+        env:
+          PUPPETEER_EXECUTABLE_PATH: ${{ env.PUPPETEER_EXECUTABLE_PATH }}
+        run: node tools/check_rational_betting.mjs
+        timeout-minutes: 3

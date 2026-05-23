@@ -22,6 +22,7 @@ import {
 } from "./dlt-independence.js";
 import { diagnoseTicket } from "./dlt-explainer.js";
 import { setupDltLstmController, updateDltLstmDraws } from "./dlt-lstm-controller.js";
+import { renderBettingPanel } from "./rational-betting-ui.js";
 import {
   frontOddEvenRatio, frontBigSmallRatio, frontPrimeCompositeRatio,
   frontPath012Ratio, frontZoneRatio, frontAcValue,
@@ -744,6 +745,7 @@ async function main() {
     renderAll();
     bindInteractions();
     setupDltLstmController(state.draws);
+    renderBettingPanel({ container: document.querySelector("#rationalBettingBody"), lottery: "dlt" });
     renderPrizePanel();
     showDltDataSourceBanner(source, fetchError);
     startCountdown();

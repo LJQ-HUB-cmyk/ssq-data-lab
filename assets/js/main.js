@@ -14,6 +14,7 @@ import { renderTrend } from "./trend-chart.js";
 import { generateTickets } from "./generator.js";
 import { generateAdvanced } from "./advanced-sampler.js";
 import { setupLstmController, updateLstmDraws } from "./lstm-controller.js";
+import { renderBettingPanel } from "./rational-betting-ui.js";
 import {
   oddEvenRatio,
   bigSmallRatio,
@@ -691,6 +692,7 @@ async function main() {
     showDataSourceBanner(source, fetchError);
     startCountdown();
     setupLstmController(draws);
+    renderBettingPanel({ container: document.querySelector("#rationalBettingBody"), lottery: "ssq" });
   } catch (err) {
     showLoadError(String(err.message || err));
   }

@@ -106,6 +106,7 @@
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="insight">冷热 · 遗漏</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="distribution">分布</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="lstm">LSTM 预测</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="rational">理性投注</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="generator">生成器</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="tools">胆拖工具</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="science">科学态度</button>
@@ -555,6 +556,19 @@
           <div class="card span-full" id="lstmDriftCard">
             <div class="card-title">📉 数据漂移监测 <span class="card-num">PSI · 早 vs 晚</span></div>
             <div id="lstmDriftBody"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 理性投注工作台 ========== -->
+      <section class="panel" id="panel-rational" data-panel="rational" role="tabpanel">
+        <div class="panel-header">
+          <h2>理性投注工作台 · Rational Betting</h2>
+          <span class="meta">F · EV / Coverage / Kelly / Bankroll</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card span-full">
+            <div id="rationalBettingBody"></div>
           </div>
         </div>
       </section>
