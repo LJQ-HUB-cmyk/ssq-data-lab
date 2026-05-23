@@ -683,6 +683,27 @@ function onOpenManager() {
       applyDltLoadedPayload(payload, false);
       toast(`已切换到「${key}」`);
     },
+    onCompare: async (payloadA, payloadB, keyA, keyB) => {
+      const card = $("#dltLstmCompareCard");
+      const body = $("#dltLstmCompareBody");
+      if (!card || !body) {
+        toast("对比 UI 未找到");
+        return;
+      }
+      card.style.display = "";
+      body.innerHTML = `<div class="muted fine" style="padding:12px">正在对比 <strong class="mono">${keyA}</strong> vs <strong class="mono">${keyB}</strong>… 跑两轮 walk-forward 回测可能需要 20-60 秒，请稍候。</div>`;
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+      try {
+        const { renderComparison } = await import("./model-compare.js");
+        await new Promise(r => setTimeout(r, 40));
+        const html = await renderComparison(payloadA, payloadB, state.draws, "dlt");
+        body.innerHTML = html;
+        toast("对比完成");
+      } catch (e) {
+        body.innerHTML = `<div class="callout chip-warn" style="margin:0"><div class="callout-title">对比失败</div><div class="callout-body">${(e.message || String(e)).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"})[c])}</div></div>`;
+        console.error(e);
+      }
+    },
   });
 }
 

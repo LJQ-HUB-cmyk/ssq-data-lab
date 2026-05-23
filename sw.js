@@ -25,7 +25,7 @@
 //     c) 缓存命中前先校验 redirected==false，否则丢弃重新拉
 //     d) 静态资源（JS/CSS）走 cache-first，但同样校验 redirected
 
-const CACHE_VERSION = "ssq-lab-v14";
+const CACHE_VERSION = "ssq-lab-v15";
 const APP_SHELL = [
   "./assets/styles.css",
   "./assets/dlt-styles.css",
@@ -91,6 +91,7 @@ const APP_SHELL = [
   "./assets/js/dlt-lstm-controller.js",
   "./assets/js/model-storage.js",
   "./assets/js/model-manager-ui.js",
+  "./assets/js/model-compare.js",
   "./assets/js/nn-worker-client.js",
   // nn-trainer-worker.js 故意不预缓存：worker 必须走网络拿原生 Response，
   // sw 包装过的 Response 偶尔会让 module worker 加载报错
