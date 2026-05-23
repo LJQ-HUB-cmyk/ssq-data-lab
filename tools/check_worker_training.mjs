@@ -4,7 +4,7 @@
 //   3. 模型管理器对话框能打开
 //   4. SW 不会拦截 worker 文件
 import puppeteer from "puppeteer-core";
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,

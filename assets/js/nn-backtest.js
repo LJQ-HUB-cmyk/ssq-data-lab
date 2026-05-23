@@ -31,6 +31,7 @@ import { freqFromDraws } from "./stats.js";
 import { posteriorMeanArray, RED_PRIOR, BLUE_PRIOR } from "./bayes.js";
 import { createRng } from "./rng.js";
 import { BASELINES } from "./lottery-config.js";
+import { ensembleForward } from "./nn-ensemble.js";
 
 /**
  * 在 testDraws 上做 backtest（不更新模型权重）。
@@ -256,3 +257,66 @@ export const RANDOM_BASELINE = {
   redHit8: BASELINES.ssq.redHit8,    // ≈ 1.4545
   blueAcc: BASELINES.ssq.blueAcc,    // 0.0625
 };
+
+
+/**
+ * Ensemble walk-forward backtest：均值概率代替单模型 forward。
+ * 与 backtestModel 同 records 字段格式，方便复用 reliability/BSS 等下游分析。
+ */
+export function backtestEnsemble(members, trainTail, testDraws, seqLen, historyBeforeTrainTail = []) {
+  let shortWindow = trainTail.slice(-seqLen);
+  let fullHist = [...historyBeforeTrainTail, ...trainTail];
+  const records = [];
+  for (const target of testDraws) {
+    const window = shortWindow.slice(-seqLen);
+    const historyBeforeWindow = fullHist.slice(0, fullHist.length - window.length);
+    const seq = encodeSequence(window, historyBeforeWindow);
+    const out = ensembleForward(members, seq);
+    const top6 = topKRed(out.redProbs, 6).map(([n]) => n);
+    const top8 = topKRed(out.redProbs, 8).map(([n]) => n);
+    const blueArg = argMaxBlue(out.blueProbs);
+    const redHit6 = top6.filter((n) => target.reds.includes(n)).length;
+    const redHit8 = top8.filter((n) => target.reds.includes(n)).length;
+    let brier = 0;
+    for (let i = 0; i < RED_DIM; i++) {
+      const p = out.redProbs.data[i];
+      const y = target.reds.includes(i + 1) ? 1 : 0;
+      brier += (p - y) ** 2;
+    }
+    brier /= RED_DIM;
+    let redLL = 0;
+    for (let i = 0; i < RED_DIM; i++) {
+      const p = Math.max(1e-12, Math.min(1 - 1e-12, out.redProbs.data[i]));
+      const y = target.reds.includes(i + 1) ? 1 : 0;
+      redLL -= y * Math.log(p) + (1 - y) * Math.log(1 - p);
+    }
+    redLL /= RED_DIM;
+    let blueLL = 0;
+    for (let i = 0; i < BLUE_DIM; i++) {
+      const p = Math.max(1e-12, out.blueProbs.data[i]);
+      const y = (target.blue === i + 1) ? 1 : 0;
+      blueLL -= y * Math.log(p);
+    }
+    records.push({
+      issue: target.issue, realReds: target.reds, realBlue: target.blue,
+      predTop6: top6, predBlue: blueArg.num, predBlueProb: blueArg.prob,
+      redHit6, redHit8,
+      blueHit: blueArg.num === target.blue,
+      brier, redLL, blueLL,
+      redProbs: Array.from(out.redProbs.data),
+      blueProbs: Array.from(out.blueProbs.data),
+    });
+    shortWindow.push(target);
+    fullHist.push(target);
+  }
+  const summary = {
+    n: records.length,
+    avgRedHit6: records.reduce((s, r) => s + r.redHit6, 0) / records.length,
+    avgRedHit8: records.reduce((s, r) => s + r.redHit8, 0) / records.length,
+    blueAccuracy: records.reduce((s, r) => s + (r.blueHit ? 1 : 0), 0) / records.length,
+    avgBrier: records.reduce((s, r) => s + r.brier, 0) / records.length,
+    avgRedLL: records.reduce((s, r) => s + r.redLL, 0) / records.length,
+    avgBlueLL: records.reduce((s, r) => s + r.blueLL, 0) / records.length,
+  };
+  return { records, summary };
+}

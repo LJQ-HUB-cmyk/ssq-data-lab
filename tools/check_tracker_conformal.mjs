@@ -7,7 +7,7 @@ import puppeteer from "puppeteer-core";
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 const PORT = 5182;
 const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -48,6 +48,7 @@ try {
 
   console.log(`[3] 验证 tracker 空态`);
   await page.waitForFunction(() => !!document.querySelector("#lstmTrackerBody"), { timeout: 5000 });
+  await sleep(200);  // 等 mountTracker setTimeout 触发
   const empty = await page.evaluate(() => {
     const b = document.querySelector("#lstmTrackerBody");
     return b?.textContent.includes("还没有预测记录");

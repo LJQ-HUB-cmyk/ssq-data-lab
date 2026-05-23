@@ -25,7 +25,7 @@
 //     c) 缓存命中前先校验 redirected==false，否则丢弃重新拉
 //     d) 静态资源（JS/CSS）走 cache-first，但同样校验 redirected
 
-const CACHE_VERSION = "ssq-lab-v18";
+const CACHE_VERSION = "ssq-lab-v19";
 const APP_SHELL = [
   "./assets/styles.css",
   "./assets/dlt-styles.css",
@@ -68,7 +68,9 @@ const APP_SHELL = [
   "./assets/js/generator.js",
   "./assets/js/lottery-config.js",
   "./assets/js/lottery-stats.js",
+  "./assets/js/lstm-backtest-renderer.js",
   "./assets/js/lstm-controller.js",
+  "./assets/js/lstm-explainer-card.js",
   "./assets/js/main.js",
   "./assets/js/mcmc.js",
   "./assets/js/miss-stats.js",

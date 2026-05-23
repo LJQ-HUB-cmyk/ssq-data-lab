@@ -5,7 +5,7 @@
 //   4. UI 控件存在 (LCB λ / Ensemble K / Label smoothing)
 
 import puppeteer from "puppeteer-core";
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,

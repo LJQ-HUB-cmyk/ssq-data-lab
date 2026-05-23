@@ -29,6 +29,7 @@ import * as predictionHistory from "./prediction-history.js";
 import { diagnoseTicket as diagnoseDltTicket } from "./dlt-explainer.js";
 import { renderTrackerPanel } from "./prediction-tracker-ui.js";
 import { renderConformalPanel } from "./conformal-ui.js";
+import { renderExplainerCard } from "./lstm-explainer-card.js";
 
 const STORAGE_KEY = "dlt-lstm-default";
 const LEGACY_LS_KEY = "dlt-lstm-model-v1";
@@ -353,7 +354,11 @@ function onPredict() {
     const front5 = top5.map(([n]) => n);
     const back2 = top2.map(([n]) => n);
     const diag = diagnoseDltTicket({ front: front5, back: back2 }, state.draws);
-    renderDltExplainerCard("#dltLstmPredictionBody", diag);
+    renderExplainerCard({
+      container: $("#dltLstmPredictionBody"),
+      diag,
+      primaryColor: "var(--dlt-front)",
+    });
   } catch (e) {
     console.warn("dlt explainer failed:", e);
   }
@@ -382,48 +387,6 @@ function nextDltIssue(issue) {
   return s.slice(0, -3) + String(n + 1).padStart(3, "0");
 }
 
-function renderDltExplainerCard(containerSel, diag) {
-  const container = $(containerSel);
-  if (!container) return;
-  container.querySelector(".explainer-card")?.remove();
-  const lvl = diag.healthLevel;
-  const colorVar = lvl.color === "green" ? "var(--dlt-front)" : lvl.color === "amber" ? "var(--gold)" : "var(--red-2)";
-  const dimsHtml = diag.dimensions.map((d) => `
-    <div class="explainer-dim">
-      <div class="explainer-dim-head">
-        <span class="explainer-dim-icon">${d.icon}</span>
-        <strong>${d.name}</strong>
-        <span class="mono" style="margin-left:auto;color:${d.score >= 75 ? "var(--dlt-front)" : d.score >= 50 ? "var(--gold)" : "var(--red-2)"}">${d.score}</span>
-      </div>
-      <div class="explainer-dim-bar"><i style="width:${d.score}%;background:${d.score >= 75 ? "var(--dlt-front)" : d.score >= 50 ? "var(--gold)" : "var(--red-2)"}"></i></div>
-      <div class="fine muted explainer-dim-reason">${d.reasons.map(r => `• ${escapeText(r)}`).join("<br>")}</div>
-    </div>
-  `).join("");
-  const card = document.createElement("div");
-  card.className = "explainer-card card";
-  card.style.marginTop = "14px";
-  card.innerHTML = `
-    <div class="explainer-head">
-      <div class="explainer-score" style="border-color:${colorVar};color:${colorVar}">
-        <strong>${diag.totalScore}</strong>
-        <span class="fine muted">/100</span>
-      </div>
-      <div class="explainer-meta">
-        <div class="card-title">号码体检 <span class="card-num">六维度评分</span></div>
-        <div style="margin-top:4px">${lvl.emoji} <strong style="color:${colorVar}">${lvl.label}</strong></div>
-      </div>
-    </div>
-    <div class="explainer-grid">${dimsHtml}</div>
-    <div class="callout" style="margin-top:12px">
-      <div class="callout-body" style="white-space:pre-wrap">${escapeText(diag.advice)}</div>
-    </div>
-  `;
-  container.appendChild(card);
-}
-
-function escapeText(s) {
-  return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
 
 async function onBacktest() {
   if (!state.model) return;

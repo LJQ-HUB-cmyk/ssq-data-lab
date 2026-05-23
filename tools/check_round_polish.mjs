@@ -1,6 +1,6 @@
 // 完整验证本轮 4 项改动：BSS + Permutation 接 UI / LR 曲线 + ETA / 训练 worker / Update banner
 import puppeteer from "puppeteer-core";
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: "new", args: ["--no-sandbox"] });
 
 const errors = [];

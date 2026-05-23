@@ -2,7 +2,7 @@
 import puppeteer from "puppeteer-core";
 import fs from "node:fs/promises";
 
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 const HOST = "http://localhost:5173";
 const OUT = "tools/screenshots/mobile-deep";
 await fs.mkdir(OUT, { recursive: true });

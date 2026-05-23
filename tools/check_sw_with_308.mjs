@@ -2,7 +2,7 @@
 // 然后验证 sw.js v9 在这种情况下"二次访问 dlt.html"不再卡住
 import puppeteer from "puppeteer-core";
 
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,

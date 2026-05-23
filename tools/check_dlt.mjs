@@ -1,7 +1,7 @@
 // 用本地 Chrome 跑 dlt.html，抓 console + page error + 网络失败。
 import puppeteer from "puppeteer-core";
 
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 const TARGET = process.argv[2] || "http://localhost:5173/dlt.html";
 
 const browser = await puppeteer.launch({

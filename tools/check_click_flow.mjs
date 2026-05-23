@@ -2,7 +2,7 @@
 // 看每一跳的 URL、status、是否进入 ERR 状态。
 import puppeteer from "puppeteer-core";
 
-const CHROME = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH || "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
 const HOST = process.argv[2] || "https://ssq-data-lab.pages.dev";
 
 const browser = await puppeteer.launch({
