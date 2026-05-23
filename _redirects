@@ -1,12 +1,13 @@
 # Cloudflare Pages routing rules
 #
-# Default Cloudflare Pages behavior auto-redirects /foo.html -> /foo with a
-# 308 response. That breaks shared "/dlt.html" links when the client has
-# transient connectivity issues (the redirect target may resolve to an
-# error before the redirected fetch completes).
+# By default Cloudflare Pages auto-redirects /foo.html -> /foo with 308.
+# We let that default stand for /dlt.html -> /dlt (cleaner URLs, good for SEO),
+# and add a rewrite rule so /dlt serves dlt.html directly with 200.
 #
-# Force /dlt.html to serve the file directly with 200.
-# Syntax: <source> <destination> <status>  (status 200 = rewrite, no redirect)
+# Status 200 = rewrite (no redirect, URL stays as /dlt).
+#
+# DO NOT add `/dlt.html /dlt.html 200` — it creates a self-rewrite loop
+# combined with the default auto-redirect, which Chromium reports as
+# ERR_TOO_MANY_REDIRECTS.
 
-/dlt.html  /dlt.html  200
-/dlt       /dlt.html  200
+/dlt  /dlt.html  200
