@@ -252,6 +252,99 @@ export function setDltGenDiagnostics(text) {
 }
 
 /* =========================================================
+   Backtest
+   ========================================================= */
+
+export function readDltBacktestConfig() {
+  return {
+    method: $("#backtestMethod")?.value || "bayes-dpp",
+    rounds: clamp(Number($("#backtestRounds")?.value || 80), 10, 300),
+    lookback: clamp(Number($("#backtestLookback")?.value || 240), 50, 1000),
+    ticketsPerDraw: clamp(Number($("#backtestTickets")?.value || 5), 1, 20),
+    seed: ($("#backtestSeed")?.value || "dlt-audit").trim() || "dlt-audit",
+  };
+}
+
+export function renderDltBacktestResult(result) {
+  const summaryEl = $("#backtestSummary");
+  const matrixEl = $("#backtestMatrix");
+  const bestEl = $("#backtestBest");
+  if (!summaryEl || !matrixEl || !bestEl) return;
+
+  if (!result) {
+    summaryEl.innerHTML = `<div class="fine muted">选择采样器后运行回测，查看命中型态、理论随机基线和最好轮次。</div>`;
+    matrixEl.innerHTML = "";
+    bestEl.innerHTML = `<div class="fine muted">尚未运行。</div>`;
+    return;
+  }
+
+  const s = result.summary;
+  const frontLift = s.frontLiftVsRandom.toFixed(2);
+  const backLift = s.backLiftVsRandom.toFixed(2);
+  const best = s.best;
+  summaryEl.innerHTML = `
+    <div class="backtest-kpis">
+      <div class="bt-kpi"><span>回测期数</span><strong class="mono">${s.rounds}</strong></div>
+      <div class="bt-kpi"><span>总注数</span><strong class="mono">${s.totalTickets}</strong></div>
+      <div class="bt-kpi"><span>成本</span><strong class="mono">${s.costYuan.toLocaleString()} 元</strong></div>
+      <div class="bt-kpi"><span>平均前区命中</span><strong class="mono">${s.avgFrontHits.toFixed(3)}</strong></div>
+      <div class="bt-kpi"><span>平均后区命中</span><strong class="mono">${s.avgBackHits.toFixed(3)}</strong></div>
+      <div class="bt-kpi"><span>前区 vs 随机</span><strong class="mono">${frontLift}x</strong></div>
+      <div class="bt-kpi"><span>后区 vs 随机</span><strong class="mono">${backLift}x</strong></div>
+      <div class="bt-kpi"><span>显著命中轮</span><strong class="mono">${s.notableCount}</strong></div>
+    </div>
+    <div class="callout" style="margin-top:12px">
+      <div class="callout-title">专业解读</div>
+      <div class="callout-body">
+        理论随机基线：单注前区平均命中 <strong class="mono">${s.baseline.frontAvgPerTicket.toFixed(3)}</strong>，
+        后区平均命中 <strong class="mono">${s.baseline.backAvgPerTicket.toFixed(3)}</strong>。
+        回测只衡量采样器的历史表现和组合分散度，<strong>不代表下一期有预测优势</strong>。
+        ${best ? `本轮最好命中为 <strong class="mono">${best.hitClass}</strong>（${escape(best.issue)}）。` : ""}
+      </div>
+    </div>
+  `;
+
+  matrixEl.innerHTML = renderHitMatrix(s.hitDistribution, s.totalTickets);
+  bestEl.innerHTML = renderBestBacktestRecords(result.records);
+}
+
+function renderHitMatrix(dist, total) {
+  const head = `<thead><tr><th>前\\后</th><th>0</th><th>1</th><th>2</th></tr></thead>`;
+  const rows = [];
+  for (let f = 5; f >= 0; f--) {
+    const cells = [];
+    for (let b = 0; b <= 2; b++) {
+      const key = `${f}+${b}`;
+      const n = dist[key] || 0;
+      const pct = total ? `${((n / total) * 100).toFixed(1)}%` : "0.0%";
+      const hot = f >= 3 || (f >= 2 && b >= 1);
+      cells.push(`<td class="${hot && n ? "is-hot" : ""}"><strong class="mono">${n}</strong><span>${pct}</span></td>`);
+    }
+    rows.push(`<tr><th>${f}</th>${cells.join("")}</tr>`);
+  }
+  return `<table class="bt-matrix">${head}<tbody>${rows.join("")}</tbody></table>`;
+}
+
+function renderBestBacktestRecords(records) {
+  const top = records.slice()
+    .sort((a, b) => (b.frontHits * 10 + b.backHits) - (a.frontHits * 10 + a.backHits)
+      || String(b.issue).localeCompare(String(a.issue)))
+    .slice(0, 8);
+  if (!top.length) return `<div class="fine muted">没有可展示的回测记录。</div>`;
+  return `
+    <div class="bt-best-list">
+      ${top.map((r) => `
+        <div class="bt-best-row">
+          <span class="mono issue">${escape(r.issue)}</span>
+          <span class="chip">${r.hitClass}</span>
+          <span class="mono ticket">${escape(formatDltTicketLine(r.ticket))}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+/* =========================================================
    Manual ticket analysis
    ========================================================= */
 

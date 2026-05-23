@@ -18,6 +18,12 @@ test("root page exposes a first-class DLT entry point", () => {
   assert.match(html, /assets\/dlt-styles\.css/);
 });
 
+test("DLT backtest module is available to the PWA cache", () => {
+  const sw = read("sw.js");
+
+  assert.match(sw, /assets\/js\/dlt-backtest\.js/);
+});
+
 test("DLT page is wired to DLT data, styles, and controller", () => {
   const page = join(ROOT, "dlt.html");
   assert.ok(existsSync(page), "dlt.html should exist");
@@ -46,6 +52,10 @@ test("DLT page contains the expected analytical workbench DOM hooks", () => {
     "includeBack",
     "manualFront",
     "manualBack",
+    "backtestRounds",
+    "backtestMethod",
+    "backtestSummary",
+    "backtestMatrix",
     "chiFront",
     "chiBack",
   ];

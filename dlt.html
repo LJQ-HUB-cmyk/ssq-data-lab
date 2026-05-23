@@ -106,6 +106,7 @@
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="insight">冷热 · 遗漏</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="distribution">分布</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="generator">生成器</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="backtest">回测</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="tools">胆拖工具</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="science">科学态度</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="data">数据</button>
@@ -570,11 +571,74 @@
         </div>
       </section>
 
+      <!-- ========== 回测 ========== -->
+      <section class="panel" id="panel-backtest" data-panel="backtest" role="tabpanel">
+        <div class="panel-header">
+          <h2>历史回测 · Backtest</h2>
+          <span class="meta">F · Walk-forward audit</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">回测设置 <span class="card-num">audit</span></div>
+            <div class="stack">
+              <label class="field">
+                <span>采样器</span>
+                <select id="backtestMethod">
+                  <option value="bayes-dpp" selected>Bayes + DPP</option>
+                  <option value="thompson">Thompson 采样</option>
+                  <option value="legacy-mix">经典混合</option>
+                  <option value="legacy-hot">经典偏热</option>
+                  <option value="legacy-uniform">均匀基线</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>回测期数</span>
+                <input id="backtestRounds" type="number" min="10" max="300" step="10" value="80" />
+              </label>
+              <label class="field">
+                <span>训练窗口</span>
+                <input id="backtestLookback" type="number" min="50" max="1000" step="10" value="240" />
+              </label>
+              <label class="field">
+                <span>每期注数</span>
+                <input id="backtestTickets" type="number" min="1" max="20" value="5" />
+              </label>
+              <label class="field">
+                <span>回测种子</span>
+                <input id="backtestSeed" type="text" value="dlt-audit" />
+              </label>
+              <button id="btnRunBacktest" class="btn primary" type="button">运行回测</button>
+            </div>
+            <div class="hint">每轮只使用目标期开奖前的历史窗口生成号码，然后与下一期开奖对照，避免偷看未来数据。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">回测总览 <span class="card-num">summary</span></div>
+            <div id="backtestSummary" class="backtest-summary">
+              <div class="fine muted">选择采样器后运行回测，查看命中型态、理论随机基线和最好轮次。</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">命中型态矩阵 <span class="card-num">hit class</span></div>
+            <div id="backtestMatrix" class="backtest-matrix"></div>
+            <div class="hint">行是前区命中个数，列是后区命中个数；矩阵展示历史回测中的出现次数。</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">最好轮次 <span class="card-num">best rounds</span></div>
+            <div id="backtestBest" class="backtest-best">
+              <div class="fine muted">尚未运行。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ========== 胆拖工具 ========== -->
       <section class="panel" id="panel-tools" data-panel="tools" role="tabpanel">
         <div class="panel-header">
           <h2>胆拖工具 · Calculator</h2>
-          <span class="meta">F · Combinatorics</span>
+          <span class="meta">G · Combinatorics</span>
         </div>
         <div class="panel-grid">
           <div class="card">
@@ -647,7 +711,7 @@
       <section class="panel" id="panel-science" data-panel="science" role="tabpanel">
         <div class="panel-header">
           <h2>科学态度 · Chi-Square</h2>
-          <span class="meta">G · Goodness of Fit</span>
+          <span class="meta">H · Goodness of Fit</span>
         </div>
         <div class="panel-grid">
           <div class="card">
@@ -690,7 +754,7 @@
       <section class="panel" id="panel-data" data-panel="data" role="tabpanel">
         <div class="panel-header">
           <h2>开奖数据 · Records</h2>
-          <span class="meta">H · Search & Export</span>
+          <span class="meta">I · Search & Export</span>
         </div>
         <div class="card">
           <div class="card-title">开奖数据 <span class="card-num">records</span></div>

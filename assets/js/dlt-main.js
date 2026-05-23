@@ -10,6 +10,7 @@ import { renderDltBars } from "./dlt-chart.js";
 import { renderDltTrend } from "./dlt-trend-chart.js";
 import { generateDltTickets } from "./dlt-generator.js";
 import { generateDltAdvanced } from "./dlt-advanced-sampler.js";
+import { runDltBacktest } from "./dlt-backtest.js";
 import {
   frontOddEvenRatio, frontBigSmallRatio, frontPrimeCompositeRatio,
   frontPath012Ratio, frontZoneRatio, frontAcValue,
@@ -41,6 +42,7 @@ import {
   showDltDataSourceBanner, setRefreshLoading,
   readDltWinSize, readDltGeneratorConfig, showDltGenError,
   setDltGenDiagnostics, toast, renderDltSamplerDiagnostics,
+  readDltBacktestConfig, renderDltBacktestResult,
 } from "./dlt-ui.js";
 
 const FRONT_ZONE = DLT_CONFIG.zones[0];
@@ -522,6 +524,31 @@ async function onCopyAll() {
   toast(`已复制 ${state.lastTickets.length} 注到剪贴板`);
 }
 
+function onRunBacktest() {
+  const btn = $("#btnRunBacktest");
+  const originalText = btn?.textContent || "运行回测";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "回测中...";
+  }
+  window.setTimeout(() => {
+    try {
+      const cfg = readDltBacktestConfig();
+      const result = runDltBacktest(state.draws, cfg);
+      renderDltBacktestResult(result);
+      toast(`回测完成：${result.summary.rounds} 期 / ${result.summary.totalTickets} 注`);
+    } catch (e) {
+      renderDltBacktestResult(null);
+      toast(`回测失败：${e.message || e}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+  }, 20);
+}
+
 function onSearch() { renderDataTable(); }
 
 async function onRefresh() {
@@ -565,6 +592,7 @@ function bindInteractions() {
   });
   $("#btnGen")?.addEventListener("click", onGenerate);
   $("#btnCopyAll")?.addEventListener("click", onCopyAll);
+  $("#btnRunBacktest")?.addEventListener("click", onRunBacktest);
   $("#btnSearch")?.addEventListener("click", onSearch);
   $("#qIssue")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") onSearch();
