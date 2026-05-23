@@ -388,3 +388,59 @@ body[data-lottery="dlt"] .ball.plus::before {
   .health-score-num { font-size: 44px; }
   .dim-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@media (max-width: 460px) {
+  .health-summary { padding: 12px; }
+  .health-score-num { font-size: 36px; }
+  .health-score-label { font-size: 12px; gap: 2px; }
+  .dim-grid { grid-template-columns: 1fr; gap: 8px; }
+  .dim-card { padding: 10px; }
+  .dim-icon { font-size: 14px; }
+  .dim-name { font-size: 11.5px; }
+  .dim-score { font-size: 14px; }
+  .dim-reasons { font-size: 10.5px; }
+}
+
+/* ============================================================
+   DLT-specific responsive refinements · 2026-05-23
+   ============================================================ */
+
+/* ── DLT tabs 12 个，PC 1280 以下都需要换行/横滚 ── */
+@media (max-width: 1280px) {
+  body[data-lottery="dlt"] .tabs {
+    grid-column: 1 / -1;
+    order: 3;
+    margin-top: 4px;
+  }
+  body[data-lottery="dlt"] .topbar {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+}
+
+/* ── KPI grid (奖级 EV / 追号) ── */
+@media (max-width: 760px) {
+  .backtest-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .bt-kpi { padding: 10px; min-height: 64px; }
+  .bt-kpi span { font-size: 11px; margin-bottom: 6px; }
+  .bt-kpi strong { font-size: 15px; }
+}
+@media (max-width: 460px) {
+  .backtest-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .bt-kpi { padding: 8px; min-height: 56px; }
+  .bt-kpi strong { font-size: 13.5px; }
+}
+
+/* ── 命中型态矩阵在窄屏滚动 ── */
+@media (max-width: 460px) {
+  .bt-matrix { font-size: 11px; }
+  .bt-matrix td { padding: 6px 4px; min-width: 44px; }
+  .bt-matrix td span { font-size: 9px; }
+  .bt-best-row { grid-template-columns: 56px 44px minmax(0, 1fr); padding: 8px; gap: 6px; }
+  .bt-best-row .ticket { font-size: 10.5px; }
+}
+
+/* ── 奖级表在窄屏滚动 ── */
+@media (max-width: 760px) {
+  #prizeTable { font-size: 12px; }
+  #prizeTable th, #prizeTable td { padding: 6px 6px; }
+}

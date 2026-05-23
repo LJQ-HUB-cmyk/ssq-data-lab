@@ -9,7 +9,7 @@
 //   - 改 CACHE_VERSION 即可使旧缓存失效
 //   - 不主动跳过 waiting，避免在用户刷新时切版本
 
-const CACHE_VERSION = "ssq-lab-v7";
+const CACHE_VERSION = "ssq-lab-v8";
 const APP_SHELL = [
   "./",
   "./index.html",

@@ -1531,3 +1531,151 @@ a {
   font-style: italic;
   color: var(--muted);
 }
+
+
+/* ============================================================
+   RESPONSIVE REFINEMENTS · 2026-05-23
+   基于真浏览器 (puppeteer) 在 360 / 414 / 768 / 1280 四档视口
+   双入口 (SSQ + DLT) 的实测发现，做精准断点修整。
+   ============================================================ */
+
+/* ── 1. 顶栏：tabs 永远独立行，不再和 brand/actions 挤 ── */
+@media (max-width: 1180px) {
+  .topbar {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    padding: 12px max(16px, calc((100vw - var(--max-w)) / 2 + 16px));
+  }
+  .tabs {
+    grid-column: 1 / -1;
+    order: 3;
+    margin-top: 4px;
+    /* 提示用户可横向滚动 */
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+  }
+  .tab { padding: 8px 12px; font-size: 12.5px; }
+}
+
+/* ── 2. 中等手机 / 大手机：缩 tabs 内边距、压 brand 文案 ── */
+@media (max-width: 640px) {
+  .topbar { padding: 10px 14px; gap: 8px; }
+  .brand-text .kicker { display: none; }   /* "SSQ · DATA LAB" 副标题在小屏隐去 */
+  .brand-text .name { font-size: 15px; }
+  .mark { width: 32px; height: 32px; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 10px; }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .lottery-switcher a { padding: 5px 10px; font-size: 11.5px; }
+  .top-actions { gap: 6px; }
+  .tab { padding: 7px 11px; font-size: 12px; }
+  .tabs { padding: 4px; }
+}
+
+/* ── 3. 极窄手机 360-380：让 brand 和 actions 紧凑 ── */
+@media (max-width: 400px) {
+  .brand { gap: 8px; }
+  .brand-text .name { font-size: 14px; }
+  .topbar { padding: 9px 12px; }
+  .lottery-switcher { padding: 3px; }
+  .lottery-switcher a { padding: 4px 8px; font-size: 11px; gap: 4px; }
+  .icon-btn { width: 32px; height: 32px; }
+  .skip-link { left: 8px; top: 8px; }
+}
+
+/* ── 4. Hero：移动端字号梯度 ── */
+@media (max-width: 760px) {
+  .hero { gap: var(--space-4); margin-bottom: var(--space-6); }
+  .hero h1 { font-size: clamp(28px, 7vw, 42px) !important; line-height: 1.15 !important; }
+  .hero .sub { font-size: 14px; }
+  .hero-metrics { gap: 10px; }
+  .metric { padding: 12px; }
+  .metric .value { font-size: 16px; }
+}
+@media (max-width: 460px) {
+  .hero h1 { font-size: 26px !important; }
+  .hero-metrics { grid-template-columns: 1fr 1fr; }   /* 3 个变 2 列 */
+  .hero-metrics > .metric:nth-child(3) { grid-column: 1 / -1; }
+}
+
+/* ── 5. Panel grid：在 600-760 之间保留 2 列，避免直接粗暴变 1 列 ── */
+@media (min-width: 601px) and (max-width: 760px) {
+  .panel-grid { grid-template-columns: 1fr 1fr; gap: 14px; }
+  .panel-grid > .span-full { grid-column: 1 / -1; }
+  .panel-grid > .card { padding: 14px; }
+}
+@media (max-width: 600px) {
+  .panel-grid { gap: 12px; }
+  .panel-grid > .card { padding: 14px; }
+  .card-title { font-size: 10.5px; }
+}
+
+/* ── 6. Form 行：窄屏让 .row 自动折行 ── */
+@media (max-width: 640px) {
+  .row { flex-wrap: wrap; gap: 8px; }
+  .field { min-width: 0; flex: 1 1 calc(50% - 4px); }
+  .field input[type="number"],
+  .field input[type="text"],
+  .field select { width: 100% !important; min-width: 0; }
+}
+@media (max-width: 400px) {
+  .field { flex: 1 1 100%; }
+}
+
+/* ── 7. 球：极窄屏轻度缩小，避免一行换行过多 ── */
+@media (max-width: 400px) {
+  .ball { width: 32px; height: 32px; font-size: 12px; }
+  .ball.plus::before { font-size: 14px; }
+  .latest-row { gap: 12px; }
+}
+
+/* ── 8. 倒计时：极窄屏字号下拉 ── */
+@media (max-width: 400px) {
+  .countdown-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .cd-cell { padding: 8px 4px; }
+  .cd-num { font-size: 16px; }
+  .cd-unit { font-size: 9px; }
+  .cd-meta { font-size: 10.5px; line-height: 1.5; }
+}
+
+/* ── 9. 按钮组：窄屏整齐换行 ── */
+@media (max-width: 640px) {
+  .btn { padding: 9px 14px; font-size: 13px; }
+  .btn-copy { padding: 6px 10px; font-size: 11.5px; }
+}
+
+/* ── 10. Sticky 顶栏在小屏减少高度，给内容更多空间 ── */
+@media (max-width: 640px) {
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  main.shell { padding-top: 18px; padding-bottom: 32px; }
+}
+
+/* ── 11. 表格：窄屏允许横向滚动 ── */
+@media (max-width: 640px) {
+  .table-wrap, .bt-table-wrap { overflow-x: auto; }
+  .table { min-width: 460px; font-size: 12.5px; }
+  .table th, .table td { padding: 8px 8px; }
+}
+
+/* ── 12. Toast 在窄屏避开输入条 ── */
+@media (max-width: 600px) {
+  .toast { left: 16px; right: 16px; bottom: calc(20px + env(safe-area-inset-bottom)); transform: none; max-width: none; }
+}
+
+/* ── 13. 移动端走势矩阵：保留滚动而不缩到看不清 ── */
+@media (max-width: 760px) {
+  .trend-wrap, .trend-svg-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* ── 14. Lift / cooccurrence 列表项：窄屏紧凑 ── */
+@media (max-width: 460px) {
+  .rank li { padding: 6px 8px; gap: 6px; }
+  .rank .ball { width: 22px !important; height: 22px !important; font-size: 10px !important; }
+}
+
+/* ── 15. PWA 安全区：刘海屏 ── */
+@supports (padding: max(0px)) {
+  .topbar {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+}

@@ -10,3 +10,4 @@ node_modules/
 .kiro/
 .vscode/
 .DS_Store
+tools/screenshots/
