@@ -92,3 +92,9 @@ jobs:
           PUPPETEER_EXECUTABLE_PATH: ${{ env.PUPPETEER_EXECUTABLE_PATH }}
         run: node tools/check_rational_betting.mjs
         timeout-minutes: 3
+
+      - name: SSQ Betting Panels (奖级 EV / 追号 / 回测)
+        env:
+          PUPPETEER_EXECUTABLE_PATH: ${{ env.PUPPETEER_EXECUTABLE_PATH }}
+        run: node tools/check_ssq_betting_panels.mjs
+        timeout-minutes: 5

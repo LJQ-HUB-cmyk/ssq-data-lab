@@ -108,6 +108,9 @@
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="lstm">LSTM 预测</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="rational">理性投注</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="generator">生成器</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="backtest">回测</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="prize">奖级 · EV</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="chase">追号风险</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="tools">胆拖工具</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="science">科学态度</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="data">数据</button>
@@ -696,6 +699,195 @@
             <div class="results" id="results"></div>
             <div class="sampler-diag" id="samplerDiag" style="display:none"></div>
             <div class="hint">号码会在你的浏览器本地生成，不会上传任何信息。<strong>所有引擎仅是更高级的随机采样器，不预测中奖号码。</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 回测 ========== -->
+      <section class="panel" id="panel-backtest" data-panel="backtest" role="tabpanel">
+        <div class="panel-header">
+          <h2>历史回测 · Backtest</h2>
+          <span class="meta">G · Walk-forward audit</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">回测设置 <span class="card-num">audit</span></div>
+            <div class="stack">
+              <label class="field">
+                <span>采样器</span>
+                <select id="ssqBacktestMethod">
+                  <option value="bayes-dpp" selected>Bayes + DPP</option>
+                  <option value="thompson">Thompson 采样</option>
+                  <option value="legacy-mix">经典混合</option>
+                  <option value="legacy-hot">经典偏热</option>
+                  <option value="legacy-uniform">均匀基线</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>回测期数</span>
+                <input id="ssqBacktestRounds" type="number" min="10" max="300" step="10" value="80" />
+              </label>
+              <label class="field">
+                <span>训练窗口</span>
+                <input id="ssqBacktestLookback" type="number" min="50" max="1000" step="10" value="240" />
+              </label>
+              <label class="field">
+                <span>每期注数</span>
+                <input id="ssqBacktestTickets" type="number" min="1" max="20" value="5" />
+              </label>
+              <label class="field">
+                <span>回测种子</span>
+                <input id="ssqBacktestSeed" type="text" value="ssq-audit" />
+              </label>
+              <button id="btnSsqRunBacktest" class="btn primary" type="button">运行回测</button>
+            </div>
+            <div class="hint">每轮只使用目标期开奖前的历史窗口生成号码，然后与下一期开奖对照，避免偷看未来数据。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">回测总览 <span class="card-num">summary</span></div>
+            <div id="ssqBacktestSummary" class="backtest-summary">
+              <div class="fine muted">选择采样器后运行回测，查看命中型态、理论随机基线和最好轮次。</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">命中型态矩阵 <span class="card-num">hit class</span></div>
+            <div id="ssqBacktestMatrix" class="backtest-matrix"></div>
+            <div class="hint">行是红球命中个数，列是蓝球命中（0 或 1）；矩阵展示历史回测中的出现次数。</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">最好轮次 <span class="card-num">best rounds</span></div>
+            <div id="ssqBacktestBest" class="backtest-best">
+              <div class="fine muted">尚未运行。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 奖级 · EV ========== -->
+      <section class="panel" id="panel-prize" data-panel="prize" role="tabpanel">
+        <div class="panel-header">
+          <h2>6 奖级 · 期望回报 EV</h2>
+          <span class="meta">G2 · Prize Structure & EV</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">奖池估计 <span class="card-num">band</span></div>
+            <div class="stack">
+              <label class="field">
+                <span>浮动奖估计</span>
+                <select id="ssqPrizeBand">
+                  <option value="conservative">保守（500 万一等 / 5 万二等）</option>
+                  <option value="expected" selected>期望（800 万一等 / 15 万二等）</option>
+                  <option value="aggressive">激进（1500 万一等 / 50 万二等）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>注数（用于总成本/EV）</span>
+                <input id="ssqPrizeTickets" type="number" min="1" max="10000" value="100" />
+              </label>
+            </div>
+            <div class="hint">一/二等奖是浮动奖，金额取决于当期奖池。这里给出三档参考估计，<strong>真实奖额请以中国福彩公示为准</strong>。<br/><strong>双色球没有"追加投注"</strong>（这是与大乐透的关键区别）。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">单注 EV 总览 <span class="card-num">payback</span></div>
+            <div id="ssqPrizeKpi" class="backtest-kpis"></div>
+            <div class="callout" style="margin-top:12px">
+              <div class="callout-title">如何理解 payback ratio</div>
+              <div class="callout-body">
+                <strong>payback ratio = EV / 成本</strong>，即"平均每花 1 元能拿回多少钱"。
+                双色球长期在 50% 左右，意味着每花 100 元期望拿回 50 元。
+                <strong>剩下 50 元是国家公益金 + 运营成本——这是国家发行彩票的本质</strong>。
+              </div>
+            </div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">6 奖级明细 <span class="card-num">6 levels</span></div>
+            <div class="bt-table-wrap">
+              <table class="table" id="ssqPrizeTable">
+                <thead>
+                  <tr>
+                    <th>等级</th>
+                    <th>命中型态</th>
+                    <th>概率</th>
+                    <th>1 / N</th>
+                    <th>奖金</th>
+                    <th>EV 贡献</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="hint">概率是精确组合数：分子 = C(6,r)·C(27,6-r)·C(1,b)·C(15,1-b)，分母 = C(33,6)·16 = 17,721,088。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">总成本 / 总 EV <span class="card-num">batch</span></div>
+            <div id="ssqPrizeBatchSummary"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 追号风险 ========== -->
+      <section class="panel" id="panel-chase" data-panel="chase" role="tabpanel">
+        <div class="panel-header">
+          <h2>追号策略 · 破产风险蒙特卡洛</h2>
+          <span class="meta">G3 · Bankruptcy Simulator</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">模拟设置 <span class="card-num">setup</span></div>
+            <div class="stack">
+              <label class="field"><span>初始本金（元）</span><input id="ssqChaseBankroll" type="number" min="20" max="1000000" value="2000" /></label>
+              <label class="field"><span>追号期数</span><input id="ssqChaseDraws" type="number" min="5" max="200" value="50" /></label>
+              <label class="field"><span>每期注数</span><input id="ssqChaseTickets" type="number" min="1" max="20" value="2" /></label>
+              <label class="field">
+                <span>策略</span>
+                <select id="ssqChaseStrategy">
+                  <option value="flat" selected>等额（最常见）</option>
+                  <option value="martingale">倍投（赌徒策略）</option>
+                  <option value="kelly">保守（凯利模拟）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>奖金估计</span>
+                <select id="ssqChasePrizeBand">
+                  <option value="conservative">保守</option>
+                  <option value="expected" selected>期望</option>
+                  <option value="aggressive">激进</option>
+                </select>
+              </label>
+              <label class="field"><span>模拟次数</span><input id="ssqChaseRuns" type="number" min="200" max="5000" step="100" value="2000" /></label>
+              <label class="field"><span>种子</span><input id="ssqChaseSeed" type="text" value="ssq-chase-2026" /></label>
+              <button id="btnSsqChaseRun" class="btn primary" type="button">运行 2000 次蒙特卡洛</button>
+            </div>
+            <div class="hint">模拟在完全 i.i.d. 假设下，连续追号 N 期的资金曲线、破产概率和命中大奖概率。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">关键指标 <span class="card-num">summary</span></div>
+            <div id="ssqChaseSummary" class="backtest-kpis"></div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">资金曲线（前 30 条样本路径） <span class="card-num">trajectories</span></div>
+            <div id="ssqChaseChart" class="lstm-curves"></div>
+            <div class="hint">绿色 = 跑完未破产；红色 = 中途破产。横轴期数，纵轴账户余额。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">最终资金分布 <span class="card-num">final bankroll</span></div>
+            <div id="ssqChaseFinalDist" class="lstm-curves"></div>
+            <div class="hint">最终账户余额的直方图。在 EV 永远 < 0 的彩票里，分布几乎一定向左偏（输得多赢得少）。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">理性思考 <span class="card-num">reflection</span></div>
+            <div id="ssqChaseVerdict" class="callout"></div>
           </div>
         </div>
       </section>

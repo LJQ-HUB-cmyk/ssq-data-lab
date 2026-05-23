@@ -16,6 +16,9 @@ import { generateAdvanced } from "./advanced-sampler.js";
 import { setupLstmController, updateLstmDraws } from "./lstm-controller.js";
 import { renderBettingPanel } from "./rational-betting-ui.js";
 import {
+  renderSsqPrizePanel, setupSsqChasePanel, setupSsqBacktestPanel,
+} from "./ssq-betting-ui.js";
+import {
   oddEvenRatio,
   bigSmallRatio,
   primeCompositeRatio,
@@ -693,6 +696,14 @@ async function main() {
     startCountdown();
     setupLstmController(draws);
     renderBettingPanel({ container: document.querySelector("#rationalBettingBody"), lottery: "ssq" });
+
+    // 投注侧三大面板（与大乐透对等）
+    renderSsqPrizePanel();
+    setupSsqChasePanel();
+    setupSsqBacktestPanel(() => state.draws);
+    // 监听 prize 输入实时刷新
+    document.querySelector("#ssqPrizeBand")?.addEventListener("change", renderSsqPrizePanel);
+    document.querySelector("#ssqPrizeTickets")?.addEventListener("input", renderSsqPrizePanel);
   } catch (err) {
     showLoadError(String(err.message || err));
   }
