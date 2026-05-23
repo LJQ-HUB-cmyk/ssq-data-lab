@@ -1,0 +1,186 @@
+/* =========================================================
+   DLT Data Lab · DLT 专用色板与组件
+   叠加在 styles.css 之上，仅声明大乐透专用 token 和 ball 样式。
+   ========================================================= */
+
+:root,
+[data-theme="dark"] {
+  --dlt-front: #5dd9b8;
+  --dlt-front-2: #88e8cd;
+  --dlt-front-deep: #1f8868;
+  --dlt-back: #d6a8ff;
+  --dlt-back-2: #e8c8ff;
+  --dlt-back-deep: #7c3fc4;
+  --dlt-aurora-1: rgba(93, 217, 184, 0.12);
+  --dlt-aurora-2: rgba(214, 168, 255, 0.10);
+  --dlt-aurora-3: rgba(255, 206, 106, 0.07);
+}
+
+[data-theme="light"] {
+  --dlt-front: #1f8868;
+  --dlt-front-2: #2fa982;
+  --dlt-front-deep: #105f47;
+  --dlt-back: #6e3aa8;
+  --dlt-back-2: #8c5dc4;
+  --dlt-back-deep: #4a2480;
+  --dlt-aurora-1: rgba(31, 136, 104, 0.10);
+  --dlt-aurora-2: rgba(110, 58, 168, 0.10);
+  --dlt-aurora-3: rgba(184, 134, 42, 0.06);
+}
+
+/* 大乐透页面整体背景：把渐变换成绿/紫/金 */
+body[data-lottery="dlt"] {
+  background-image:
+    radial-gradient(900px 520px at 18% 6%, var(--dlt-aurora-1), transparent 65%),
+    radial-gradient(820px 600px at 88% 12%, var(--dlt-aurora-2), transparent 60%),
+    radial-gradient(780px 600px at 70% 92%, var(--dlt-aurora-3), transparent 60%),
+    linear-gradient(180deg, var(--bg-0), var(--bg-1) 55%, var(--bg-0));
+}
+
+/* 大乐透 ball：前区绿，后区紫 */
+.ball.front {
+  background:
+    radial-gradient(10px 10px at 32% 28%, rgba(255, 255, 255, 0.55), transparent 65%),
+    linear-gradient(160deg, var(--dlt-front-2) 0%, var(--dlt-front) 55%, var(--dlt-front-deep) 100%);
+}
+.ball.back {
+  background:
+    radial-gradient(10px 10px at 32% 28%, rgba(255, 255, 255, 0.55), transparent 65%),
+    linear-gradient(160deg, var(--dlt-back-2) 0%, var(--dlt-back) 55%, var(--dlt-back-deep) 100%);
+}
+
+/* 表格内紧凑号码样式 */
+.front-num {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dlt-front) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--dlt-front) 30%, transparent);
+  color: var(--dlt-front);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.back-num {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dlt-back) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--dlt-back) 30%, transparent);
+  color: var(--dlt-back);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* logo 改成绿/紫调（大乐透页） */
+body[data-lottery="dlt"] .mark .dot.red {
+  background: radial-gradient(6px 6px at 30% 28%, rgba(255, 255, 255, 0.6), transparent 60%),
+    linear-gradient(180deg, var(--dlt-front-2), var(--dlt-front));
+}
+body[data-lottery="dlt"] .mark .dot.blue {
+  background: radial-gradient(6px 6px at 30% 28%, rgba(255, 255, 255, 0.6), transparent 60%),
+    linear-gradient(180deg, var(--dlt-back-2), var(--dlt-back));
+}
+
+/* 页头彩种切换器（双色球 ↔ 大乐透） */
+.lottery-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  margin-right: var(--space-3);
+}
+.lottery-switcher a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all var(--t-fast) var(--ease-out);
+}
+.lottery-switcher a:hover { color: var(--text); background: var(--surface-2); }
+.lottery-switcher a.is-active {
+  color: #0a0c10;
+  background: linear-gradient(180deg, var(--acid-2), var(--acid));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+[data-theme="light"] .lottery-switcher a.is-active { color: #fff; }
+
+/* 大乐透活动标签按钮的色调 */
+body[data-lottery="dlt"] .tab.is-active {
+  background: linear-gradient(180deg, var(--dlt-front-2), var(--dlt-front));
+  color: #0a0c10;
+  box-shadow: 0 6px 18px color-mix(in oklab, var(--dlt-front) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+[data-theme="light"] body[data-lottery="dlt"] .tab.is-active { color: #fff; }
+
+body[data-lottery="dlt"] .lottery-switcher a.is-active {
+  background: linear-gradient(180deg, var(--dlt-front-2), var(--dlt-front));
+}
+[data-theme="light"] body[data-lottery="dlt"] .lottery-switcher a.is-active { color: #fff; }
+
+/* 大乐透按钮 primary 改色 */
+body[data-lottery="dlt"] .btn.primary {
+  background: linear-gradient(180deg, var(--dlt-front-2), var(--dlt-front));
+  border-color: color-mix(in oklab, var(--dlt-front) 40%, transparent);
+}
+body[data-lottery="dlt"] .btn.primary:hover {
+  box-shadow: 0 6px 16px color-mix(in oklab, var(--dlt-front) 30%, transparent);
+}
+
+/* 大乐透卡片标题点 */
+body[data-lottery="dlt"] .card-title::before {
+  background: var(--dlt-front);
+  box-shadow: 0 0 12px color-mix(in oklab, var(--dlt-front) 60%, transparent);
+}
+
+body[data-lottery="dlt"] .hero-eyebrow .pulse { background: var(--dlt-front); }
+body[data-lottery="dlt"] .metric::before { background: var(--dlt-front); }
+
+/* 大乐透 chart 颜色变量复用：renderDltBars 通过 --dlt-* 自动读取 */
+body[data-lottery="dlt"] .chart-blue {
+  /* 复用 .chart-blue 基础结构，但实际颜色由 renderDltBars 内部决定 */
+}
+
+/* 三区/双比分布行的小柱条颜色（大乐透） */
+body[data-lottery="dlt"] .ratio-bar i {
+  background: linear-gradient(180deg, var(--dlt-front-2), var(--dlt-front));
+}
+
+/* 票面分隔：把后区前面的 + 也改成 plum */
+body[data-lottery="dlt"] .ball.plus::before {
+  color: var(--muted-2);
+}
+
+/* 大乐透号码体检里的"前区/后区"分组 */
+.dlt-zone-group {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.dlt-zone-group .zone-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  margin-right: 6px;
+  align-self: center;
+}

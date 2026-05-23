@@ -55,5 +55,5 @@ npm run serve
 
 ## 数据更新
 
-`data/draws.json` 会由 `.github/workflows/update-data.yml` 自动维护（周一 / 三 / 五）。
+`data/draws.json` 与 `data/dlt-draws.json` 会由 `.github/workflows/update-data.yml` 自动维护；workflow 每天北京时间 22:30 运行，无新开奖时自动 no-op。
 部署流水线只需上传静态文件，不需要运行 Python。

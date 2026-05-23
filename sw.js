@@ -1,41 +1,58 @@
-// SSQ Data Lab · 极简 service worker
+// Lottery Data Lab · 极简 service worker
 //
 // 设计目标：
 //   1. 离线可用：缓存 app shell（HTML/CSS/JS）
-//   2. 数据保鲜：data/draws.json 走 stale-while-revalidate，离线时回退缓存
+//   2. 数据保鲜：data/draws.json / data/dlt-draws.json 走 stale-while-revalidate，离线时回退缓存
 //   3. 不缓存第三方：仅同源资源
 //
 // 升级策略：
 //   - 改 CACHE_VERSION 即可使旧缓存失效
 //   - 不主动跳过 waiting，避免在用户刷新时切版本
 
-const CACHE_VERSION = "ssq-lab-v4";
+const CACHE_VERSION = "ssq-lab-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./dlt.html",
   "./assets/styles.css",
+  "./assets/dlt-styles.css",
   "./assets/js/main.js",
+  "./assets/js/dlt-main.js",
   "./assets/js/data.js",
+  "./assets/js/dlt-data.js",
   "./assets/js/utils.js",
+  "./assets/js/lottery-config.js",
+  "./assets/js/lottery-stats.js",
   "./assets/js/stats.js",
   "./assets/js/distribution.js",
+  "./assets/js/dlt-distribution.js",
   "./assets/js/chi-square.js",
+  "./assets/js/dlt-chi-square.js",
   "./assets/js/combinatorics.js",
+  "./assets/js/dlt-combinatorics.js",
   "./assets/js/generator.js",
+  "./assets/js/dlt-generator.js",
   "./assets/js/chart.js",
+  "./assets/js/dlt-chart.js",
   "./assets/js/trend.js",
   "./assets/js/trend-chart.js",
+  "./assets/js/dlt-trend-chart.js",
   "./assets/js/ui.js",
+  "./assets/js/dlt-ui.js",
   "./assets/js/miss-stats.js",
   "./assets/js/cooccurrence.js",
+  "./assets/js/dlt-cooccurrence.js",
   "./assets/js/timeseries.js",
+  "./assets/js/dlt-timeseries.js",
   "./assets/js/countdown.js",
+  "./assets/js/dlt-countdown.js",
   "./assets/js/rng.js",
   "./assets/js/bayes.js",
   "./assets/js/dpp.js",
   "./assets/js/mcmc.js",
   "./assets/js/distance.js",
   "./assets/js/advanced-sampler.js",
+  "./assets/js/dlt-advanced-sampler.js",
   "./assets/js/nn-math.js",
   "./assets/js/nn-optim.js",
   "./assets/js/nn-lstm.js",
@@ -71,7 +88,7 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET" || url.origin !== self.location.origin) return;
 
   // 数据走 stale-while-revalidate
-  if (url.pathname.endsWith("/data/draws.json")) {
+  if (url.pathname.endsWith("/data/draws.json") || url.pathname.endsWith("/data/dlt-draws.json")) {
     event.respondWith(staleWhileRevalidate(req));
     return;
   }

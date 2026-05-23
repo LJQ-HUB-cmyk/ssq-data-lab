@@ -1,7 +1,7 @@
 {
-  "name": "双色球数据实验室 · SSQ Data Lab",
-  "short_name": "SSQ Lab",
-  "description": "用 3400+ 期真实开奖数据做可视化、分布分析与卡方检验。不预测、不承诺中奖、不引导购彩。",
+  "name": "双色球 / 大乐透数据实验室 · Lottery Data Lab",
+  "short_name": "Lottery Lab",
+  "description": "用真实双色球与大乐透开奖数据做可视化、分布分析、卡方检验与高级随机采样。不预测、不承诺中奖、不引导购彩。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
