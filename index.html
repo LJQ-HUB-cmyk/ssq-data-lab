@@ -495,10 +495,16 @@
               <button id="btnLstmStop" class="btn ghost" type="button" disabled>停止</button>
               <button id="btnLstmPredict" class="btn" type="button" disabled>预测下一期</button>
               <button id="btnLstmBacktest" class="btn ghost" type="button" disabled>Walk-forward 回测</button>
-              <button id="btnLstmSave" class="btn ghost" type="button" disabled>保存模型</button>
-              <button id="btnLstmLoad" class="btn ghost" type="button">加载模型</button>
+              <button id="btnLstmSave" class="btn ghost" type="button" disabled>保存到本地（IndexedDB）</button>
+              <button id="btnLstmLoad" class="btn ghost" type="button">从本地加载</button>
+              <button id="btnLstmDownload" class="btn ghost" type="button" disabled>下载备份</button>
+              <label class="btn ghost" style="cursor:pointer">
+                上传备份
+                <input id="lstmUploadFile" type="file" accept=".json,.lottery.json" style="display:none" />
+              </label>
             </div>
-            <div class="hint">完整 LSTM 在浏览器本地训练（纯手写，零依赖）。约 300 期数据 + H=64，单核约 30 秒一个 epoch。</div>
+            <div class="hint">完整 LSTM 在浏览器本地训练（纯手写，零依赖）。约 300 期数据 + H=64，单核约 30 秒一个 epoch。<br/>
+            <strong>存储升级</strong>：从 localStorage（5MB 限制）改为 IndexedDB（数百 MB）+ 文件备份。<strong>建议训练后立即下载备份</strong>，避免浏览器清缓存丢模型。</div>
           </div>
 
           <div class="card span-full">
@@ -710,10 +716,12 @@
           </div>
           <div class="card">
             <div class="card-title">常用参考 <span class="card-num">cheatsheet</span></div>
-            <table class="table mini">
-              <thead><tr><th>红球数</th><th>注数</th><th>金额</th></tr></thead>
-              <tbody id="refTable"></tbody>
-            </table>
+            <div class="table-wrap">
+              <table class="table mini">
+                <thead><tr><th>红球数</th><th>注数</th><th>金额</th></tr></thead>
+                <tbody id="refTable"></tbody>
+              </table>
+            </div>
             <div class="hint">单蓝球；每注 2 元。</div>
           </div>
         </div>

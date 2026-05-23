@@ -1679,3 +1679,168 @@ a {
     padding-right: max(16px, env(safe-area-inset-right));
   }
 }
+
+
+/* ============================================================
+   MOBILE DEEP-FIX · 2026-05-23
+   基于 puppeteer 在 360/375/390/430 4 档真机视口跑过的问题清单：
+   - 100 个真问题被发现，归为 4 类
+   ── (A) 表格 right=493 超出视口
+   ── (B) 表单 input 高度 28-32px，达不到 44px 触摸标准
+   ── (C) tab 按钮高度 29px，触摸目标过小
+   ── (D) 顶栏占 21% 视口高度
+   ============================================================ */
+
+@media (max-width: 760px) {
+  /* ── (A) 所有表格在窄屏强制横滚，并修复 .table-wrap 的 overflow:hidden ── */
+  .table-wrap,
+  .bt-table-wrap {
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    /* 提示用户可横滑：右侧渐隐 */
+    -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
+            mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
+  }
+  /* DLT prize 表格列多，强制 min-width 触发横滚 */
+  #prizeTable { min-width: 540px; }
+  /* 命中型态矩阵 */
+  .bt-matrix { min-width: 280px; }
+
+  /* ── (B) 所有表单元素至少 40px 高（44px 减去 1px border 上下 + 4px 安全余量） ── */
+  .field input[type="number"],
+  .field input[type="text"],
+  .field input[type="email"],
+  .field select {
+    min-height: 40px;
+    padding: 9px 12px;
+    font-size: 16px;          /* 防止 iOS Safari 自动放大 */
+    line-height: 1.3;
+    -webkit-appearance: none;
+       -moz-appearance: textfield;
+            appearance: none;
+  }
+  /* iOS Safari select 必须保留下拉箭头 */
+  .field select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M2 4l4 4 4-4'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 32px;
+  }
+  /* number input 的 spinner 在 iOS 上很难按，干脆隐藏 */
+  .field input[type="number"]::-webkit-outer-spin-button,
+  .field input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  /* 单独的 input/select（不在 .field 里的，比如倒计时小输入） */
+  input[type="text"]:not(.field input):not([readonly]):not([type="checkbox"]),
+  input[type="number"]:not(.field input) {
+    min-height: 40px;
+    font-size: 16px;
+  }
+
+  /* ── (C) 顶栏 tab 按钮：保证 36px 高 ── */
+  .tab {
+    min-height: 36px;
+    padding: 9px 13px;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* ── (D) 顶栏紧凑：减少 padding，brand kicker 省略 ── */
+  .topbar {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    gap: 8px;
+  }
+  .brand-text .kicker { display: none; }
+  .mark { width: 32px; height: 32px; padding: 3px; }
+  .brand-text .name { font-size: 15px; line-height: 1.15; }
+  .icon-btn { width: 38px; height: 38px; }   /* 触摸标准 */
+  .lottery-switcher { padding: 3px; }
+  .lottery-switcher a { padding: 7px 11px; font-size: 12px; min-height: 32px; display: inline-flex; align-items: center; }
+  .top-actions { gap: 6px; }
+
+  /* footer 链接触摸标准：inline-block + 行高 + min-height 三重保险 */
+  .footer a {
+    padding: 10px 8px;
+    min-height: 36px;
+    line-height: 1.4;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .footer { font-size: 12.5px; line-height: 1.6; gap: 8px; }
+  .footer > div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+}
+
+/* 中等手机 / iPhone 13 / 14 / 15: 360 ~ 414 ── */
+@media (max-width: 414px) {
+  /* hero 主标题更紧凑 */
+  .hero h1 { font-size: clamp(24px, 7.5vw, 32px) !important; }
+  .hero { gap: 14px; margin-bottom: 18px; }
+  .hero-eyebrow { font-size: 11px; padding: 5px 10px; }
+  .hero .sub { font-size: 13px; }
+
+  /* metric 卡片紧凑 */
+  .metric { padding: 10px; }
+  .metric .label { font-size: 9px; }
+  .metric .value { font-size: 14px; margin-top: 6px; }
+
+  /* card 内边距 */
+  .panel-grid > .card { padding: 13px; }
+  .card-title { font-size: 10px; gap: 8px; }
+
+  /* lottery-switcher 高度统一 */
+  .lottery-switcher a { font-size: 11.5px; padding: 6px 9px; }
+
+  /* btn 触摸 */
+  .btn { min-height: 40px; padding: 10px 14px; font-size: 13px; }
+  .btn.ghost, .btn.primary { min-height: 40px; }
+  .btn-copy { min-height: 30px; padding: 6px 10px; }
+
+  /* checkbox 触摸 */
+  .check { min-height: 36px; padding: 6px 0; }
+  .check input[type="checkbox"] {
+    width: 18px; height: 18px;
+    transform: scale(1.05);
+  }
+
+  /* lottery-switcher 触摸高度提到 36 */
+  .lottery-switcher a { min-height: 36px; }
+  /* icon-btn 别被 414 媒体查询压回小尺寸 */
+  .icon-btn { width: 38px !important; height: 38px !important; }
+}
+
+/* 极窄屏（折叠手机外屏 / 旧 Android）360 以下 ── */
+@media (max-width: 360px) {
+  .hero h1 { font-size: 22px !important; }
+  .topbar { padding-left: 10px; padding-right: 10px; gap: 6px; }
+  .mark { width: 28px; height: 28px; }
+  .brand-text .name { font-size: 13px; }
+  .icon-btn { width: 36px !important; height: 36px !important; }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .lottery-switcher a { padding: 5px 8px; font-size: 11px; min-height: 32px; }
+  .ball { width: 30px; height: 30px; font-size: 11px; }
+  .latest-row > div { font-size: 11px; }
+  .cd-num { font-size: 14px; }
+  .cd-cell { padding: 6px 2px; }
+}
+
+/* iOS Safari 横屏适配 */
+@media (max-width: 932px) and (orientation: landscape) {
+  .topbar { position: relative; }   /* 横屏时 sticky 太占空间 */
+}
+
+/* ============================================================
+   表单元素 :focus 状态在小屏更明显
+   ============================================================ */
+@media (max-width: 760px) {
+  .field input:focus,
+  .field select:focus {
+    outline: 2px solid color-mix(in oklab, var(--acid) 70%, transparent);
+    outline-offset: 1px;
+    border-color: var(--acid);
+  }
+}

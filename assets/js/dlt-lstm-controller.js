@@ -20,8 +20,10 @@ import {
   reliabilityDiagram,
 } from "./nn-statistics.js";
 import { createRng } from "./rng.js";
+import * as modelStorage from "./model-storage.js";
 
-const STORAGE_KEY = "dlt-lstm-model-v1";
+const STORAGE_KEY = "dlt-lstm-default";
+const LEGACY_LS_KEY = "dlt-lstm-model-v1";
 
 const state = {
   draws: [],
@@ -45,6 +47,12 @@ export function setupDltLstmController(allDraws) {
   $("#btnDltLstmBacktest")?.addEventListener("click", onBacktest);
   $("#btnDltLstmSave")?.addEventListener("click", onSave);
   $("#btnDltLstmLoad")?.addEventListener("click", onLoad);
+  $("#btnDltLstmDownload")?.addEventListener("click", onDownload);
+  $("#dltLstmUploadFile")?.addEventListener("change", (e) => {
+    const f = e.target.files?.[0];
+    if (f) onUploadFile(f);
+    e.target.value = "";
+  });
   tryAutoLoad();
 }
 
@@ -118,6 +126,7 @@ async function onTrain() {
     $("#btnDltLstmPredict").disabled = false;
     $("#btnDltLstmBacktest").disabled = false;
     $("#btnDltLstmSave").disabled = false;
+    if ($("#btnDltLstmDownload")) $("#btnDltLstmDownload").disabled = false;
   } catch (err) {
     setStatus(`错误：${err.message || err}`, "bad");
     console.error(err);
@@ -348,54 +357,101 @@ function renderReliab(reliab) {
 }
 
 /* ============================================================
- * 持久化
+ * 持久化（IndexedDB + 文件导出 / 导入）
  * ============================================================ */
-function onSave() {
+async function onSave() {
   if (!state.model) return;
+  const payload = buildDltPayload();
   try {
-    const payload = {
-      model: serializeDltModel(state.model),
-      seqLen: state.seqLen,
-      history: state.history,
-      savedAt: new Date().toISOString(),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    toast("DLT 模型已保存");
+    await modelStorage.save(STORAGE_KEY, payload);
+    modelStorage.requestPersistence().catch(() => {});
+    const quota = await modelStorage.getQuota();
+    const quotaStr = quota
+      ? `（已用 ${(quota.usage / 1024 / 1024).toFixed(1)} / ${(quota.quota / 1024 / 1024).toFixed(0)} MB）`
+      : "";
+    toast(`已保存到 IndexedDB ${quotaStr}`);
   } catch (e) {
-    toast(`保存失败：${e.message}`);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      toast(`已降级保存到 localStorage（${e.message}）`);
+    } catch (e2) {
+      toast(`保存失败：${e2.message}（请用「下载到本地」）`);
+    }
   }
 }
 
-function tryAutoLoad() {
+function buildDltPayload() {
+  return {
+    type: "single",
+    lottery: "dlt",
+    model: serializeDltModel(state.model),
+    seqLen: state.seqLen,
+    history: state.history,
+    hiddenDim: state.model?.hiddenDim,
+    numLayers: state.model?.numLayers,
+    savedAt: new Date().toISOString(),
+  };
+}
+
+async function tryAutoLoad() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const payload = JSON.parse(raw);
-    state.model = deserializeDltModel(payload.model);
-    state.seqLen = payload.seqLen || 15;
-    state.history = payload.history || null;
-    setStatus(`已自动加载 DLT 模型（${payload.savedAt?.slice(0, 19) || ""}）`, "ok");
-    if (state.history) renderFinalMetrics(state.history);
-    $("#btnDltLstmPredict").disabled = false;
+    let payload = await modelStorage.load(STORAGE_KEY);
+    if (!payload) {
+      payload = await modelStorage.migrateFromLocalStorage(LEGACY_LS_KEY, STORAGE_KEY);
+      if (payload) toast("已从 localStorage 迁移老 DLT 模型到 IndexedDB");
+    }
+    if (payload) applyDltLoadedPayload(payload, true);
   } catch {}
 }
 
-function onLoad() {
+async function onLoad() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) { toast("没有找到已保存的模型"); return; }
-    const payload = JSON.parse(raw);
-    state.model = deserializeDltModel(payload.model);
-    state.seqLen = payload.seqLen || 15;
-    state.history = payload.history || null;
-    if (state.history) renderFinalMetrics(state.history);
-    $("#btnDltLstmPredict").disabled = false;
-    $("#btnDltLstmBacktest").disabled = !state.valSamples;
-    $("#btnDltLstmSave").disabled = false;
-    toast("已加载");
+    const payload = await modelStorage.load(STORAGE_KEY);
+    if (!payload) {
+      const raw = localStorage.getItem(LEGACY_LS_KEY);
+      if (raw) { applyDltLoadedPayload(JSON.parse(raw), false); return; }
+      toast("没有找到已保存的模型");
+      return;
+    }
+    applyDltLoadedPayload(payload, false);
   } catch (e) {
     toast(`加载失败：${e.message}`);
   }
+}
+
+function applyDltLoadedPayload(payload, silent) {
+  if (payload?.lottery && payload.lottery !== "dlt") {
+    toast(`这是 ${payload.lottery.toUpperCase()} 模型，不能导入到大乐透`);
+    return;
+  }
+  state.model = deserializeDltModel(payload.model);
+  state.seqLen = payload.seqLen || 15;
+  state.history = payload.history || null;
+  if (state.history) renderFinalMetrics(state.history);
+  $("#btnDltLstmPredict").disabled = false;
+  $("#btnDltLstmBacktest").disabled = !state.valSamples;
+  $("#btnDltLstmSave").disabled = false;
+  if ($("#btnDltLstmDownload")) $("#btnDltLstmDownload").disabled = false;
+  if (silent) setStatus(`已自动加载 DLT 模型（${payload.savedAt?.slice(0, 19) || ""}）`, "ok");
+  else toast("已加载");
+}
+
+function onDownload() {
+  if (!state.model) return;
+  const payload = buildDltPayload();
+  const filename = `dlt-lstm-${new Date().toISOString().slice(0, 10)}.lottery.json`;
+  modelStorage.exportToFile(payload, filename);
+  toast(`已下载 ${filename}`);
+}
+
+function onUploadFile(file) {
+  if (!file) return;
+  modelStorage.importFromFile(file)
+    .then((payload) => {
+      applyDltLoadedPayload(payload, false);
+      modelStorage.save(STORAGE_KEY, payload).catch(() => {});
+    })
+    .catch((e) => toast(`导入失败：${e.message}`));
 }
 
 /* ============================================================

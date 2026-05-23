@@ -470,10 +470,16 @@
               <button id="btnDltLstmStop" class="btn ghost" type="button" disabled>停止</button>
               <button id="btnDltLstmPredict" class="btn" type="button" disabled>预测下一期</button>
               <button id="btnDltLstmBacktest" class="btn ghost" type="button" disabled>Walk-forward 回测</button>
-              <button id="btnDltLstmSave" class="btn ghost" type="button" disabled>保存模型</button>
-              <button id="btnDltLstmLoad" class="btn ghost" type="button">加载模型</button>
+              <button id="btnDltLstmSave" class="btn ghost" type="button" disabled>保存到本地（IndexedDB）</button>
+              <button id="btnDltLstmLoad" class="btn ghost" type="button">从本地加载</button>
+              <button id="btnDltLstmDownload" class="btn ghost" type="button" disabled>下载备份</button>
+              <label class="btn ghost" style="cursor:pointer">
+                上传备份
+                <input id="dltLstmUploadFile" type="file" accept=".json,.lottery.json" style="display:none" />
+              </label>
             </div>
-            <div class="hint">大乐透专属 LSTM：47 维输入（35 前 + 12 后），双 sigmoid 输出（multi-label BCE）。完整堆叠 + dropout + 早停 + best-on-val 还原；浏览器本地训练。</div>
+            <div class="hint">大乐透专属 LSTM：47 维输入（35 前 + 12 后），双 sigmoid 输出（multi-label BCE）。完整堆叠 + dropout + 早停 + best-on-val 还原；浏览器本地训练。<br/>
+            <strong>存储升级</strong>：从 localStorage 改为 IndexedDB + 文件备份。<strong>建议训练后立即下载备份</strong>。</div>
           </div>
 
           <div class="card span-full">
@@ -889,10 +895,12 @@
           </div>
           <div class="card">
             <div class="card-title">常用参考 <span class="card-num">cheatsheet</span></div>
-            <table class="table mini">
-              <thead><tr><th>前区数</th><th>注数</th><th>金额</th></tr></thead>
-              <tbody id="refTable"></tbody>
-            </table>
+            <div class="table-wrap">
+              <table class="table mini">
+                <thead><tr><th>前区数</th><th>注数</th><th>金额</th></tr></thead>
+                <tbody id="refTable"></tbody>
+              </table>
+            </div>
             <div class="hint">后区固定 2 个；每注 2 元。</div>
           </div>
         </div>
