@@ -22,6 +22,8 @@ import {
 } from "./nn-statistics.js";
 import { createRng } from "./rng.js";
 import * as modelStorage from "./model-storage.js";
+import { openModelManager } from "./model-manager-ui.js";
+import { isWorkerAvailable, trainInWorker } from "./nn-worker-client.js";
 
 const STORAGE_KEY = "dlt-lstm-default";
 const LEGACY_LS_KEY = "dlt-lstm-model-v1";
@@ -42,6 +44,7 @@ export function setupDltLstmController(allDraws) {
   $("#btnDltLstmTrain")?.addEventListener("click", onTrain);
   $("#btnDltLstmStop")?.addEventListener("click", () => {
     state.shouldStop = true;
+    if (state.workerStop) state.workerStop();
     setStatus("stopping…", "warn");
   });
   $("#btnDltLstmPredict")?.addEventListener("click", onPredict);
@@ -50,6 +53,7 @@ export function setupDltLstmController(allDraws) {
   $("#btnDltLstmLoad")?.addEventListener("click", onLoad);
   $("#btnDltLstmDownload")?.addEventListener("click", onDownload);
   $("#btnDltLstmLoadDemo")?.addEventListener("click", onLoadDemo);
+  $("#btnDltLstmManager")?.addEventListener("click", onOpenManager);
   $("#dltLstmUploadFile")?.addEventListener("change", (e) => {
     const f = e.target.files?.[0];
     if (f) onUploadFile(f);
@@ -106,8 +110,48 @@ async function onTrain() {
       labelSmoothing,
     };
 
-    if (ensembleK > 1) {
-      // Ensemble 模式
+    if (state.useWorker !== false && isWorkerAvailable()) {
+      const workerHandle = trainInWorker({
+        cmd: "trainDlt",
+        samples: state.trainSamples,
+        valSamples: state.valSamples,
+        modelOpts: baseModelOpts,
+        trainOpts: baseTrainOpts,
+        seed: seedStr,
+        ensembleK,
+        onBatch: (b) => {
+          if (b.totalBatches) {
+            const ratio = ensembleK > 1
+              ? (b.member / b.totalMembers) + (b.batch / b.totalBatches / b.totalMembers)
+              : (b.batch / b.totalBatches);
+            setProgress(ratio);
+          }
+        },
+        onEpoch: (e) => {
+          appendCurve(e);
+          if (ensembleK > 1) {
+            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)}`);
+          } else {
+            setStatus(`[worker] epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 前 hit@5 ${e.valFrontHit5.toFixed(3)}`);
+          }
+        },
+      });
+      state.workerStop = workerHandle.stop;
+      const payload = await workerHandle.done;
+      if (payload.type === "ensemble") {
+        state.ensemble = {
+          members: payload.members.map(deserializeDltModel),
+          histories: payload.histories,
+        };
+        state.history = state.ensemble.histories[state.ensemble.histories.length - 1] || null;
+        state.model = state.ensemble.members[0];
+      } else {
+        state.model = deserializeDltModel(payload.model);
+        if (payload.calibration) state.model.calibration = payload.calibration;
+        state.history = payload.history;
+        state.ensemble = null;
+      }
+    } else if (ensembleK > 1) {
       const result = await trainDltEnsemble(state.trainSamples, state.valSamples, {
         K: ensembleK,
         seedBase: seedStr,
@@ -584,6 +628,18 @@ async function onLoadDemo() {
     setStatus(`Demo 加载失败：${e.message}`, "bad");
     toast(`Demo 加载失败：${e.message}`);
   }
+}
+
+function onOpenManager() {
+  openModelManager({
+    lottery: "dlt",
+    currentKey: STORAGE_KEY,
+    onSwitch: (key, payload) => {
+      modelStorage.save(STORAGE_KEY, payload).catch(() => {});
+      applyDltLoadedPayload(payload, false);
+      toast(`已切换到「${key}」`);
+    },
+  });
 }
 
 /* ============================================================

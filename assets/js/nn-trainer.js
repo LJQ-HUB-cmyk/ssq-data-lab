@@ -18,6 +18,7 @@ import {
 import { clipGradGlobal, makeMat, hasNaN } from "./nn-math.js";
 import { createAdam } from "./nn-optim.js";
 import { fitTemperatureSigmoid, fitTemperatureSoftmax } from "./nn-calibration.js";
+import { makeSchedule } from "./nn-schedule.js";
 
 /** 从历史 draws 构造样本数组。 */
 export function buildSamples(draws, seqLen) {
@@ -121,6 +122,8 @@ export async function trainModel(model, trainSamples, valSamples, opts = {}) {
     gradClip = 5,
     patience = 5,
     labelSmoothing = 0,
+    schedule = "cosine",      // "cosine" | "constant" | "step"
+    warmupEpochs = 1,
     rng = Math.random,
     onEpoch,
     onBatch,
@@ -129,6 +132,14 @@ export async function trainModel(model, trainSamples, valSamples, opts = {}) {
 
   const params = flattenParams(model);
   const adam = createAdam(params, { lr, weightDecay });
+  // LR schedule 按 epoch 步进；warmupSteps = warmupEpochs * 1（按 epoch 计）
+  const lrFn = makeSchedule(schedule, {
+    lrPeak: lr,
+    lrMin: lr * 0.01,
+    warmupSteps: warmupEpochs,
+    stepEpochs: 5,
+    gamma: 0.5,
+  });
   const history = {
     epochs: [],
     lr: [],
@@ -145,7 +156,7 @@ export async function trainModel(model, trainSamples, valSamples, opts = {}) {
 
   for (let epoch = 0; epoch < epochs; epoch++) {
     if (shouldStop && shouldStop()) break;
-    const epochLr = lr * Math.pow(1 - lrDecay, epoch);
+    const epochLr = lrFn(epoch, epochs);
     adam.setLr(epochLr);
 
     // shuffle

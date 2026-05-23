@@ -9,6 +9,7 @@ import {
 import { clipGradGlobal, makeMat, hasNaN } from "./nn-math.js";
 import { createAdam } from "./nn-optim.js";
 import { fitTemperatureSigmoid } from "./nn-calibration.js";
+import { makeSchedule } from "./nn-schedule.js";
 
 export function buildDltSamples(draws, seqLen) {
   const samples = [];
@@ -96,12 +97,21 @@ export async function trainDltModel(model, trainSamples, valSamples, opts = {}) 
     gradClip = 5,
     patience = 6,
     labelSmoothing = 0,
+    schedule = "cosine",
+    warmupEpochs = 1,
     rng = Math.random,
     onEpoch, onBatch, shouldStop,
   } = opts;
 
   const params = flattenDltParams(model);
   const adam = createAdam(params, { lr, weightDecay });
+  const lrFn = makeSchedule(schedule, {
+    lrPeak: lr,
+    lrMin: lr * 0.01,
+    warmupSteps: warmupEpochs,
+    stepEpochs: 5,
+    gamma: 0.5,
+  });
   const history = {
     epochs: [], lr: [],
     trainLoss: [], valLoss: [],
@@ -115,7 +125,7 @@ export async function trainDltModel(model, trainSamples, valSamples, opts = {}) 
 
   for (let epoch = 0; epoch < epochs; epoch++) {
     if (shouldStop && shouldStop()) break;
-    const epochLr = lr * Math.pow(1 - lrDecay, epoch);
+    const epochLr = lrFn(epoch, epochs);
     adam.setLr(epochLr);
     const order = trainSamples.slice();
     shuffleInPlace(order, rng);

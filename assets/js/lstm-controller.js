@@ -23,6 +23,8 @@ import {
 import { trainEnsemble, ensembleForward } from "./nn-ensemble.js";
 import { createRng } from "./rng.js";
 import * as modelStorage from "./model-storage.js";
+import { openModelManager } from "./model-manager-ui.js";
+import { isWorkerAvailable, trainInWorker } from "./nn-worker-client.js";
 
 const STORAGE_KEY = "ssq-lstm-default";
 const LEGACY_LS_KEY = "ssq-lstm-model-v2";  // 老 localStorage key
@@ -45,6 +47,7 @@ export function setupLstmController(allDraws) {
   $("#btnLstmTrain")?.addEventListener("click", onTrain);
   $("#btnLstmStop")?.addEventListener("click", () => {
     state.shouldStop = true;
+    if (state.workerStop) state.workerStop();
     setStatus("stopping…", "warn");
   });
   $("#btnLstmPredict")?.addEventListener("click", onPredict);
@@ -53,6 +56,7 @@ export function setupLstmController(allDraws) {
   $("#btnLstmLoad")?.addEventListener("click", onLoad);
   $("#btnLstmDownload")?.addEventListener("click", onDownload);
   $("#btnLstmLoadDemo")?.addEventListener("click", onLoadDemo);
+  $("#btnLstmManager")?.addEventListener("click", onOpenManager);
   $("#lstmUploadFile")?.addEventListener("change", (e) => {
     const f = e.target.files?.[0];
     if (f) onUploadFile(f);
@@ -122,7 +126,49 @@ async function onTrain() {
       labelSmoothing,
     };
 
-    if (ensembleK > 1) {
+    if (state.useWorker !== false && isWorkerAvailable()) {
+      // ── Web Worker 训练 ──
+      const workerHandle = trainInWorker({
+        cmd: "trainSsq",
+        samples: state.trainSamples,
+        valSamples: state.valSamples,
+        modelOpts: baseModelOpts,
+        trainOpts: baseTrainOpts,
+        seed: seedStr,
+        ensembleK,
+        onBatch: (b) => {
+          if (b.totalBatches) {
+            const ratio = ensembleK > 1
+              ? (b.member / b.totalMembers) + (b.batch / b.totalBatches / b.totalMembers)
+              : (b.batch / b.totalBatches);
+            setProgress(ratio);
+          }
+        },
+        onEpoch: (e) => {
+          appendCurve(e, e.member);
+          if (ensembleK > 1) {
+            setStatus(`成员 ${e.member + 1}/${e.totalMembers} · epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)}`);
+          } else {
+            setStatus(`[worker] epoch ${e.epoch + 1}/${e.totalEpochs} · train ${e.trainLoss.toFixed(4)} · val ${e.valLoss.toFixed(4)} · 红 hit@6 ${e.valRedHit6.toFixed(3)}`);
+          }
+        },
+      });
+      state.workerStop = workerHandle.stop;
+      const payload = await workerHandle.done;
+      if (payload.type === "ensemble") {
+        state.ensemble = {
+          members: payload.members.map(deserializeModel),
+          histories: payload.histories,
+        };
+        state.history = state.ensemble.histories[state.ensemble.histories.length - 1] || null;
+        state.model = state.ensemble.members[0];
+      } else {
+        state.model = deserializeModel(payload.model);
+        if (payload.calibration) state.model.calibration = payload.calibration;
+        state.history = payload.history;
+        state.ensemble = null;
+      }
+    } else if (ensembleK > 1) {
       const result = await trainEnsemble(state.trainSamples, state.valSamples, {
         K: ensembleK,
         seedBase: seedStr,
@@ -720,6 +766,21 @@ async function onLoadDemo() {
     setStatus(`Demo 加载失败：${e.message}`, "bad");
     toast(`Demo 加载失败：${e.message}`);
   }
+}
+
+/** 打开模型管理器对话框。 */
+function onOpenManager() {
+  openModelManager({
+    lottery: "ssq",
+    currentKey: STORAGE_KEY,
+    onSwitch: (key, payload) => {
+      // 把 payload 应用到当前 state，并把 STORAGE_KEY 重新指向选定的 key
+      // 简化：直接替换默认 STORAGE_KEY 的内容
+      modelStorage.save(STORAGE_KEY, payload).catch(() => {});
+      applyLoadedPayload(payload, false);
+      toast(`已切换到「${key}」`);
+    },
+  });
 }
 
 function applyLoadedPayload(payload, silent) {

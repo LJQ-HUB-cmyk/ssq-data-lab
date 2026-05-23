@@ -133,3 +133,104 @@ export const metricAvgBrier = (records) => {
   for (const r of records) if (r.brier != null) { s += r.brier; n++; }
   return n === 0 ? 0 : s / n;
 };
+
+
+/* =========================================================
+   Brier Skill Score (BSS)
+   ─────────────────────────────────────────────────────────
+   BSS = 1 - BS_model / BS_ref
+     - BS_ref：参考预测器的 Brier 分数（一般用"气候平均"——所有号码 = 6/33）
+     - BSS > 0 表示优于参考；BSS < 0 表示劣于参考；BSS = 1 表示完美
+   BSS 比 raw Brier 更直观，因为它把"基线难度"折算掉了。
+   ========================================================= */
+
+/**
+ * 给 records 列表（含 redProbs[size] 和 realReds），计算 BSS。
+ * @param records
+ * @param size 号码空间大小（SSQ 红 33，DLT 前 35）
+ * @param pick 每期摇出几个（SSQ 红 6，DLT 前 5）
+ *             — 用来定 climatology baseline = pick / size
+ */
+export function brierSkillScore(records, size = 33, pick = 6) {
+  if (!records || records.length === 0) return { bss: 0, bsModel: 0, bsRef: 0 };
+  const baseline = pick / size;
+  let bsModel = 0, bsRef = 0;
+  let n = 0;
+  for (const r of records) {
+    if (!r.redProbs || !r.realReds) continue;
+    for (let i = 0; i < size; i++) {
+      const p = r.redProbs[i];
+      const y = r.realReds.includes(i + 1) ? 1 : 0;
+      bsModel += (p - y) ** 2;
+      bsRef += (baseline - y) ** 2;
+    }
+    n++;
+  }
+  if (n === 0 || bsRef === 0) return { bss: 0, bsModel: 0, bsRef: 0 };
+  bsModel /= (n * size);
+  bsRef /= (n * size);
+  return {
+    bss: 1 - bsModel / bsRef,
+    bsModel, bsRef,
+    n, size, pick, baseline,
+  };
+}
+
+/* =========================================================
+   Permutation test
+   ─────────────────────────────────────────────────────────
+   对"模型 vs 基线"的 metric 差，做 paired permutation test：
+     - 配对：第 i 期模型分数 m_i 和基线分数 b_i
+     - 原始观察 d_obs = mean(m - b)
+     - 置换：随机翻转每个 (m_i, b_i) 的"配对身份"，重算 d_perm
+     - p 值 = #{|d_perm| >= |d_obs|} / B
+   这是比 paired bootstrap 更严格的"无分布假设"显著性检验。
+   ========================================================= */
+
+/**
+ * @param recordsA / recordsB 必须等长且 i 期对 i 期
+ * @param metricFn(record) → number
+ * @param B 重复次数（默认 1000）
+ * @param seed 重现用
+ * @returns { meanDiff, pTwoSided, observed, distribution }
+ */
+export function permutationTest(recordsA, recordsB, metricFn, { B = 1000, seed = "perm" } = {}) {
+  const n = Math.min(recordsA.length, recordsB.length);
+  if (n === 0) return { meanDiff: 0, pTwoSided: 1, observed: 0, distribution: [] };
+
+  const a = recordsA.slice(0, n).map(metricFn);
+  const b = recordsB.slice(0, n).map(metricFn);
+  let observed = 0;
+  for (let i = 0; i < n; i++) observed += a[i] - b[i];
+  observed /= n;
+
+  // 用简单 LCG 做种子可重现
+  let state = 0;
+  for (let i = 0; i < seed.length; i++) state = (state * 31 + seed.charCodeAt(i)) >>> 0;
+  const rng = () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+
+  let extreme = 0;
+  const distribution = [];
+  for (let r = 0; r < B; r++) {
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+      // 按 50% 概率交换 a[i] 和 b[i]
+      const swap = rng() < 0.5;
+      s += swap ? (b[i] - a[i]) : (a[i] - b[i]);
+    }
+    s /= n;
+    distribution.push(s);
+    if (Math.abs(s) >= Math.abs(observed) - 1e-12) extreme++;
+  }
+
+  return {
+    observed,
+    pTwoSided: extreme / B,
+    meanDiff: observed,
+    distribution,
+    samples: B,
+  };
+}

@@ -25,7 +25,7 @@
 //     c) 缓存命中前先校验 redirected==false，否则丢弃重新拉
 //     d) 静态资源（JS/CSS）走 cache-first，但同样校验 redirected
 
-const CACHE_VERSION = "ssq-lab-v13";
+const CACHE_VERSION = "ssq-lab-v14";
 const APP_SHELL = [
   "./assets/styles.css",
   "./assets/dlt-styles.css",
@@ -74,7 +74,6 @@ const APP_SHELL = [
   "./assets/js/dlt-nn-model.js",
   "./assets/js/dlt-nn-trainer.js",
   "./assets/js/dlt-nn-backtest.js",
-  "./assets/js/dlt-lstm-controller.js",
   "./assets/js/nn-math.js",
   "./assets/js/nn-optim.js",
   "./assets/js/nn-lstm.js",
@@ -86,9 +85,15 @@ const APP_SHELL = [
   "./assets/js/nn-ensemble.js",
   "./assets/js/nn-calibration.js",
   "./assets/js/nn-features.js",
+  "./assets/js/nn-schedule.js",
   "./assets/js/dlt-nn-ensemble.js",
   "./assets/js/lstm-controller.js",
+  "./assets/js/dlt-lstm-controller.js",
   "./assets/js/model-storage.js",
+  "./assets/js/model-manager-ui.js",
+  "./assets/js/nn-worker-client.js",
+  // nn-trainer-worker.js 故意不预缓存：worker 必须走网络拿原生 Response，
+  // sw 包装过的 Response 偶尔会让 module worker 加载报错
   "./manifest.webmanifest",
   // Demo 模型（点 ⚡ 一键加载体验时用，~200 KB 一份）
   "./data/demo-models/ssq-lstm.json",
@@ -132,6 +137,12 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== self.location.origin) return;
+
+  // 0) Web Worker 脚本：直接走网络，不让 SW 干预
+  //    （SW 包装的 Response 在 Worker 里有时会出 module loading 异常）
+  if (url.pathname.endsWith("/nn-trainer-worker.js")) {
+    return; // 让浏览器原生 fetch
+  }
 
   // 1) 数据接口：stale-while-revalidate
   if (url.pathname.endsWith("/data/draws.json") || url.pathname.endsWith("/data/dlt-draws.json")) {
