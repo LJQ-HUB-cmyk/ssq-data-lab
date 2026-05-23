@@ -105,8 +105,11 @@
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="trend">走势图</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="insight">冷热 · 遗漏</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="distribution">分布</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="lstm">LSTM 预测</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="generator">生成器</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="backtest">回测</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="prize">奖级 · EV</button>
+        <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="chase">追号风险</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="tools">胆拖工具</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="science">科学态度</button>
         <button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="data">数据</button>
@@ -440,6 +443,61 @@
         </div>
       </section>
 
+      <!-- ========== LSTM 预测 ========== -->
+      <section class="panel" id="panel-lstm" data-panel="lstm" role="tabpanel">
+        <div class="panel-header">
+          <h2>大乐透神经网络预测 · LSTM</h2>
+          <span class="meta">E · Sequence Modeling</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card span-full">
+            <div class="card-title">模型 <span class="card-num">architecture</span></div>
+            <div class="row">
+              <label class="field"><span>序列长度 T</span><input id="dltLstmSeqLen" type="number" min="5" max="50" value="15" /></label>
+              <label class="field"><span>隐藏维度 H</span><input id="dltLstmHidden" type="number" min="16" max="256" value="64" /></label>
+              <label class="field"><span>层数 L</span><input id="dltLstmLayers" type="number" min="1" max="4" value="2" /></label>
+              <label class="field"><span>训练 / 验证</span><input id="dltLstmSplit" type="number" min="0.5" max="0.95" step="0.05" value="0.85" /></label>
+              <label class="field"><span>学习率</span><input id="dltLstmLr" type="number" min="0.0001" max="0.1" step="0.0001" value="0.003" /></label>
+              <label class="field"><span>Epochs</span><input id="dltLstmEpochs" type="number" min="1" max="100" value="20" /></label>
+              <label class="field"><span>Batch</span><input id="dltLstmBatch" type="number" min="4" max="128" value="32" /></label>
+              <label class="field"><span>Dropout 输入</span><input id="dltLstmDropIn" type="number" min="0" max="0.5" step="0.05" value="0.1" /></label>
+              <label class="field"><span>Dropout 隐藏</span><input id="dltLstmDropHidden" type="number" min="0" max="0.5" step="0.05" value="0.2" /></label>
+              <label class="field"><span>Dropout 输出</span><input id="dltLstmDropOut" type="number" min="0" max="0.5" step="0.05" value="0.2" /></label>
+              <label class="field"><span>种子</span><input id="dltLstmSeed" type="text" placeholder="留空=随机" /></label>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <button id="btnDltLstmTrain" class="btn primary" type="button">开始训练</button>
+              <button id="btnDltLstmStop" class="btn ghost" type="button" disabled>停止</button>
+              <button id="btnDltLstmPredict" class="btn" type="button" disabled>预测下一期</button>
+              <button id="btnDltLstmBacktest" class="btn ghost" type="button" disabled>Walk-forward 回测</button>
+              <button id="btnDltLstmSave" class="btn ghost" type="button" disabled>保存模型</button>
+              <button id="btnDltLstmLoad" class="btn ghost" type="button">加载模型</button>
+            </div>
+            <div class="hint">大乐透专属 LSTM：47 维输入（35 前 + 12 后），双 sigmoid 输出（multi-label BCE）。完整堆叠 + dropout + 早停 + best-on-val 还原；浏览器本地训练。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">训练进度 <span class="card-num">live</span></div>
+            <div id="dltLstmStatus" class="lstm-status">就绪：点击「开始训练」</div>
+            <div id="dltLstmProgressWrap" class="lstm-progress" aria-hidden="true">
+              <div id="dltLstmProgressBar" class="lstm-progress-bar"></div>
+            </div>
+            <div id="dltLstmCurves" class="lstm-curves"></div>
+            <div id="dltLstmMetrics" class="diag-grid" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card span-full" id="dltLstmPredictionCard" style="display:none">
+            <div class="card-title">下一期预测 <span class="card-num">prediction</span></div>
+            <div id="dltLstmPredictionBody"></div>
+          </div>
+
+          <div class="card span-full" id="dltLstmBacktestCard" style="display:none">
+            <div class="card-title">Walk-forward 回测 <span class="card-num">backtest</span></div>
+            <div id="dltLstmBacktestBody"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- ========== 生成器 ========== -->
       <section class="panel" id="panel-generator" data-panel="generator" role="tabpanel">
         <div class="panel-header">
@@ -634,6 +692,139 @@
         </div>
       </section>
 
+      <!-- ========== 奖级 · EV ========== -->
+      <section class="panel" id="panel-prize" data-panel="prize" role="tabpanel">
+        <div class="panel-header">
+          <h2>9 奖级 · 期望回报 EV</h2>
+          <span class="meta">F2 · Prize Structure & EV</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">奖池估计 <span class="card-num">band</span></div>
+            <div class="stack">
+              <label class="field">
+                <span>浮动奖估计</span>
+                <select id="prizeBand">
+                  <option value="conservative">保守（500 万一等 / 8 万二等）</option>
+                  <option value="expected" selected>期望（800 万一等 / 20 万二等）</option>
+                  <option value="aggressive">激进（1500 万一等 / 50 万二等）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>注数（用于总成本/EV）</span>
+                <input id="prizeTickets" type="number" min="1" max="10000" value="100" />
+              </label>
+            </div>
+            <div class="hint">一/二等奖是浮动奖，金额取决于当期奖池。这里给出三档参考估计，<strong>真实奖额请以中国体彩公示为准</strong>。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">基本投注 vs 追加投注 <span class="card-num">payback</span></div>
+            <div id="prizeKpiCompare" class="backtest-kpis"></div>
+            <div class="callout" style="margin-top:12px">
+              <div class="callout-title">如何理解 payback ratio</div>
+              <div class="callout-body">
+                <strong>payback ratio = EV / 成本</strong>，即"平均每花 1 元能拿回多少钱"。任何彩票产品在数学上都 < 1，
+                这就是国家发行彩票筹集公益金的本质。<strong>追加投注是否更划算，取决于一/二/三等奖的奖池估计</strong>——
+                奖池高时追加 edge 为正（值得追加），奖池低时为负（不追加更优）。
+              </div>
+            </div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">9 奖级明细 <span class="card-num">9 levels</span></div>
+            <div class="bt-table-wrap">
+              <table class="table" id="prizeTable">
+                <thead>
+                  <tr>
+                    <th>等级</th>
+                    <th>命中型态</th>
+                    <th>概率</th>
+                    <th>1 / N</th>
+                    <th>基本奖金</th>
+                    <th>追加奖金</th>
+                    <th>EV 贡献（基本）</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="hint">概率是精确组合数：分子 = C(5,f)·C(30,5-f)·C(2,b)·C(10,2-b)，分母 = C(35,5)·C(12,2) = 21,425,712。</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">追加投注增量 EV <span class="card-num">add edge</span></div>
+            <div id="prizeAddEdge" class="diag-grid"></div>
+            <div class="hint">追加多花 1 元换取一/二/三等奖 80% 加成。edge &gt; 0 才值得追加。</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">总成本 / 总 EV <span class="card-num">batch</span></div>
+            <div id="prizeBatchSummary"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 追号风险 ========== -->
+      <section class="panel" id="panel-chase" data-panel="chase" role="tabpanel">
+        <div class="panel-header">
+          <h2>追号策略 · 破产风险蒙特卡洛</h2>
+          <span class="meta">F3 · Bankruptcy Simulator</span>
+        </div>
+        <div class="panel-grid">
+          <div class="card">
+            <div class="card-title">模拟设置 <span class="card-num">setup</span></div>
+            <div class="stack">
+              <label class="field"><span>初始本金（元）</span><input id="chaseBankroll" type="number" min="20" max="1000000" value="2000" /></label>
+              <label class="field"><span>追号期数</span><input id="chaseDraws" type="number" min="5" max="200" value="50" /></label>
+              <label class="field"><span>每期注数</span><input id="chaseTickets" type="number" min="1" max="20" value="2" /></label>
+              <label class="field">
+                <span>策略</span>
+                <select id="chaseStrategy">
+                  <option value="flat" selected>等额（最常见）</option>
+                  <option value="martingale">倍投（赌徒策略）</option>
+                  <option value="kelly">保守（凯利模拟）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>奖金估计</span>
+                <select id="chasePrizeBand">
+                  <option value="conservative">保守</option>
+                  <option value="expected" selected>期望</option>
+                  <option value="aggressive">激进</option>
+                </select>
+              </label>
+              <label class="field"><span>模拟次数</span><input id="chaseRuns" type="number" min="200" max="5000" step="100" value="2000" /></label>
+              <label class="field"><span>种子</span><input id="chaseSeed" type="text" value="chase-2026" /></label>
+              <button id="btnChaseRun" class="btn primary" type="button">运行 2000 次蒙特卡洛</button>
+            </div>
+            <div class="hint">模拟在完全 i.i.d. 假设下，连续追号 N 期的资金曲线、破产概率和命中大奖概率。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">关键指标 <span class="card-num">summary</span></div>
+            <div id="chaseSummary" class="backtest-kpis"></div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">资金曲线（前 30 条样本路径） <span class="card-num">trajectories</span></div>
+            <div id="chaseChart" class="lstm-curves"></div>
+            <div class="hint">绿色 = 跑完未破产；红色 = 中途破产。横轴期数，纵轴账户余额。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">最终资金分布 <span class="card-num">final bankroll</span></div>
+            <div id="chaseFinalDist" class="lstm-curves"></div>
+            <div class="hint">最终账户余额的直方图。在 EV 永远 < 0 的彩票里，分布几乎一定向左偏（输得多赢得少）。</div>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">理性思考 <span class="card-num">reflection</span></div>
+            <div id="chaseVerdict" class="callout"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- ========== 胆拖工具 ========== -->
       <section class="panel" id="panel-tools" data-panel="tools" role="tabpanel">
         <div class="panel-header">
@@ -682,7 +873,7 @@
             <div class="hint">复式：前区选 ≥5 个、后区选 ≥2 个，所有 5+2 组合都投。</div>
           </div>
           <div class="card">
-            <div class="card-title">号码体检 <span class="card-num">checkup</span></div>
+            <div class="card-title">号码深度体检 <span class="card-num">deep checkup</span></div>
             <div class="stack">
               <label class="field">
                 <span>前区</span>
@@ -692,9 +883,9 @@
                 <span>后区</span>
                 <input id="manualBack" type="text" placeholder="例如：04 11" />
               </label>
-              <button id="btnAnalyseTicket" class="btn primary" type="button">分析号码</button>
+              <button id="btnAnalyseTicket" class="btn primary" type="button">体检报告</button>
             </div>
-            <div class="analysis-box" id="ticketAnalysis">输入一注前区 5 个 + 后区 2 个号码，查看分布指标、历史重号与最新期重复情况。</div>
+            <div class="analysis-box" id="ticketAnalysis">输入一注前区 5 个 + 后区 2 个号码，查看 6 维健康度评分、详细分布指标、历史重号与最新期重复情况。</div>
           </div>
           <div class="card">
             <div class="card-title">常用参考 <span class="card-num">cheatsheet</span></div>
@@ -746,6 +937,28 @@
               <li>换句话说：<strong>历史频率偏差不是「下一期会补回」的依据</strong>，它只可能是「摇奖设备的随机性缺陷」。</li>
               <li>大乐透一等奖基本投注理论概率为 <strong class="mono">1/21,425,712</strong>，任何采样器都不能改变这个概率。</li>
             </ul>
+          </div>
+
+          <div class="card span-full">
+            <div class="card-title">前后区独立性检验 <span class="card-num">independence</span></div>
+            <div class="callout" style="margin-bottom:12px">
+              <div class="callout-title">问题</div>
+              <div class="callout-body">大乐透前区（5 选 35）和后区（2 选 12）是两个独立摇奖装置。理论上前区出什么不影响后区。下面三个角度的检验都是<strong>"先验上必为独立"</strong>的 sanity check——如果显著拒绝独立，那就指向硬件偏差或数据问题，而不是"前区出 X 时后区会补 Y"。</div>
+            </div>
+            <div class="panel-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+              <div>
+                <div class="card-title fine">前区和值 vs 后区和值</div>
+                <div class="metric-block" id="indCorr"></div>
+              </div>
+              <div>
+                <div class="card-title fine">奇偶比独立性 χ²</div>
+                <div class="metric-block" id="indOddChi"></div>
+              </div>
+              <div>
+                <div class="card-title fine">最偏离独立的 (前, 后) 对</div>
+                <div id="indPairs" class="rank" style="margin-top: 8px"></div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

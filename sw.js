@@ -9,7 +9,7 @@
 //   - 改 CACHE_VERSION 即可使旧缓存失效
 //   - 不主动跳过 waiting，避免在用户刷新时切版本
 
-const CACHE_VERSION = "ssq-lab-v6";
+const CACHE_VERSION = "ssq-lab-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -54,6 +54,14 @@ const APP_SHELL = [
   "./assets/js/advanced-sampler.js",
   "./assets/js/dlt-advanced-sampler.js",
   "./assets/js/dlt-backtest.js",
+  "./assets/js/dlt-prize.js",
+  "./assets/js/dlt-independence.js",
+  "./assets/js/dlt-explainer.js",
+  "./assets/js/dlt-chase.js",
+  "./assets/js/dlt-nn-model.js",
+  "./assets/js/dlt-nn-trainer.js",
+  "./assets/js/dlt-nn-backtest.js",
+  "./assets/js/dlt-lstm-controller.js",
   "./assets/js/nn-math.js",
   "./assets/js/nn-optim.js",
   "./assets/js/nn-lstm.js",

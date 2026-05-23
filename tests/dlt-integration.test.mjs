@@ -34,7 +34,9 @@ test("DLT page is wired to DLT data, styles, and controller", () => {
   assert.match(html, /assets\/js\/dlt-main\.js/);
   assert.match(html, /assets\/dlt-styles\.css/);
   assert.match(html, /data-lottery="dlt"/);
-  assert.doesNotMatch(html, /data-tab="lstm"/);
+  // 大乐透自己的 LSTM tab + 控件 id 都用 dlt 前缀
+  assert.match(html, /data-tab="lstm"/);
+  assert.match(html, /id="btnDltLstmTrain"/);
 });
 
 test("DLT page contains the expected analytical workbench DOM hooks", () => {
@@ -65,4 +67,52 @@ test("DLT page contains the expected analytical workbench DOM hooks", () => {
   }
   assert.match(html, /1\/21,425,712/);
   assert.match(html, /前区 5 个 \+ 后区 2 个/);
+});
+
+test("DLT new advanced panels exist (prize, chase, independence, deep checkup)", () => {
+  const html = read("dlt.html");
+  // 新增 4 个 tab
+  assert.match(html, /data-tab="prize"/);
+  assert.match(html, /data-tab="chase"/);
+  // 新增 panel id
+  assert.match(html, /id="panel-prize"/);
+  assert.match(html, /id="panel-chase"/);
+  // 关键控件 id
+  for (const id of [
+    "prizeBand", "prizeTickets", "prizeKpiCompare", "prizeTable",
+    "prizeAddEdge", "prizeBatchSummary",
+    "chaseBankroll", "chaseDraws", "chaseTickets", "chaseStrategy", "chasePrizeBand",
+    "chaseRuns", "btnChaseRun", "chaseSummary", "chaseChart", "chaseFinalDist", "chaseVerdict",
+    "indCorr", "indOddChi", "indPairs",
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"`), `${id} should exist`);
+  }
+});
+
+test("DLT prize panel exposes 9 award levels via JS module", async () => {
+  const mod = await import("../assets/js/dlt-prize.js");
+  assert.equal(mod.DLT_PRIZES.length, 9);
+  // 一等奖必须是浮动
+  assert.equal(mod.DLT_PRIZES[0].type, "floating");
+  // 三等奖必须是固定 10000
+  assert.equal(mod.DLT_PRIZES[2].fixedPrize, 10000);
+});
+
+test("DLT LSTM module loads and creates a model", async () => {
+  const mod = await import("../assets/js/dlt-nn-model.js");
+  const m = mod.createDltModel({ hiddenDim: 8, numLayers: 1 });
+  assert.equal(m.hiddenDim, 8);
+  assert.equal(m.numLayers, 1);
+  assert.equal(m.frontHead.W.rows, 35);
+  assert.equal(m.backHead.W.rows, 12);
+});
+
+test("PWA cache lists all new dlt-* modules", () => {
+  const sw = read("sw.js");
+  for (const mod of [
+    "dlt-prize.js", "dlt-independence.js", "dlt-explainer.js", "dlt-chase.js",
+    "dlt-nn-model.js", "dlt-nn-trainer.js", "dlt-nn-backtest.js", "dlt-lstm-controller.js",
+  ]) {
+    assert.match(sw, new RegExp(mod.replace(".", "\\."), ""), `${mod} missing in cache`);
+  }
 });

@@ -12,6 +12,17 @@ import { generateDltTickets } from "./dlt-generator.js";
 import { generateDltAdvanced } from "./dlt-advanced-sampler.js";
 import { runDltBacktest } from "./dlt-backtest.js";
 import {
+  expectedReturn, additionalBetEdge, withPrizeProbabilities,
+  ticketsExpectedReturn,
+} from "./dlt-prize.js";
+import { simulateChase } from "./dlt-chase.js";
+import {
+  frontBackSumCorrelation, oddCountIndependenceTest,
+  frontBackPairLift, verdictFromP,
+} from "./dlt-independence.js";
+import { diagnoseTicket } from "./dlt-explainer.js";
+import { setupDltLstmController, updateDltLstmDraws } from "./dlt-lstm-controller.js";
+import {
   frontOddEvenRatio, frontBigSmallRatio, frontPrimeCompositeRatio,
   frontPath012Ratio, frontZoneRatio, frontAcValue,
   frontConsecutiveGroups, frontMaxSameTail,
@@ -267,6 +278,64 @@ function renderScience() {
   }
   $("#scienceVerdict").innerHTML = verdict + "<br/><br/>"
     + `<em class="muted">样本：${state.draws.length} 期（${state.draws[0].issue} – ${state.draws[state.draws.length - 1].issue}）</em>`;
+
+  renderIndependenceChecks();
+}
+
+function renderIndependenceChecks() {
+  // 1) 前后区和值相关
+  const corr = frontBackSumCorrelation(state.draws);
+  const corrEl = $("#indCorr");
+  if (corrEl) {
+    const v = verdictFromP(Math.min(corr.pearsonP, corr.spearmanP));
+    corrEl.innerHTML = `
+      <div class="metric-line"><span>Pearson r</span><strong class="mono">${corr.pearson.toFixed(4)}</strong></div>
+      <div class="metric-line"><span>Pearson p</span><strong class="mono">${formatP(corr.pearsonP)}</strong></div>
+      <div class="metric-line"><span>Spearman ρ</span><strong class="mono">${corr.spearman.toFixed(4)}</strong></div>
+      <div class="metric-line"><span>Spearman p</span><strong class="mono">${formatP(corr.spearmanP)}</strong></div>
+      <div class="metric-line"><span>判语</span><strong>${verdictChipFromV(v)}</strong></div>
+    `;
+  }
+
+  // 2) 奇偶比独立性卡方
+  const odd = oddCountIndependenceTest(state.draws);
+  const oddEl = $("#indOddChi");
+  if (oddEl) {
+    const v = verdictFromP(odd.p);
+    oddEl.innerHTML = `
+      <div class="metric-line"><span>χ²</span><strong class="mono">${odd.chi.toFixed(2)}</strong></div>
+      <div class="metric-line"><span>df</span><strong class="mono">${odd.df}</strong></div>
+      <div class="metric-line"><span>p 值</span><strong class="mono">${formatP(odd.p)}</strong></div>
+      <div class="metric-line"><span>样本</span><strong class="mono">${odd.n}</strong></div>
+      <div class="metric-line"><span>判语</span><strong>${verdictChipFromV(v)}</strong></div>
+    `;
+  }
+
+  // 3) 35×12 lift 极端对
+  const pairs = frontBackPairLift(state.draws, { topK: 8 });
+  const pairsEl = $("#indPairs");
+  if (pairsEl) {
+    pairsEl.innerHTML = "";
+    for (const e of pairs.extremes) {
+      const li = document.createElement("li");
+      const liftColor2 = Math.abs(e.deviation) < 0.05 ? "var(--dlt-front)"
+        : Math.abs(e.deviation) < 0.15 ? "var(--gold)" : "var(--red-2)";
+      li.innerHTML = `
+        <span class="ball front" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(e.front)}</span>
+        <span class="ball back" style="width:24px;height:24px;font-size:10px;box-shadow:none">${pad2(e.back)}</span>
+        <span class="muted" style="margin-left:auto; font-family:var(--mono); font-size:12px">
+          ×&nbsp;${e.count} · lift <strong style="color:${liftColor2}">${e.lift.toFixed(2)}</strong>
+        </span>
+      `;
+      pairsEl.appendChild(li);
+    }
+  }
+}
+
+function verdictChipFromV(v) {
+  if (!v.reject) return `<span class="chip chip-ok">${v.text}</span>`;
+  if (v.severity === "weak") return `<span class="chip chip-warn">${v.text}</span>`;
+  return `<span class="chip chip-warn" style="border-color:var(--red-2); color:var(--red-2)">${v.text}</span>`;
 }
 
 function formatP(p) {
@@ -352,6 +421,10 @@ function analyseManualTicket() {
   const bkey = back.join(",");
   const historyHits = state.draws.filter((d) =>
     d.front.join(",") === fkey && d.back.join(",") === bkey);
+
+  // 6 维深度诊断
+  const diag = diagnoseTicket({ front, back }, state.draws);
+
   renderDltTicketAnalysis({
     front, back,
     sum: frontSum(front),
@@ -369,6 +442,7 @@ function analyseManualTicket() {
     repeatFront: latest ? front.filter((n) => latest.front.includes(n)) : [],
     repeatBack: latest ? back.filter((n) => latest.back.includes(n)) : [],
     historyHits,
+    diagnosis: diag,
   });
 }
 
@@ -560,6 +634,7 @@ async function onRefresh() {
     state.winSize = readDltWinSize();
     computeStats();
     renderAll();
+    updateDltLstmDraws(draws);
     toast(`已刷新：${draws.length} 期`);
   } catch (err) {
     toast(`刷新失败：${err.message || err}`);
@@ -607,6 +682,14 @@ function bindInteractions() {
     toast("已导出 CSV");
   });
   $("#btnRefresh")?.addEventListener("click", onRefresh);
+
+  // 奖级 EV 面板
+  $("#prizeBand")?.addEventListener("change", renderPrizePanel);
+  $("#prizeTickets")?.addEventListener("input", renderPrizePanel);
+
+  // 追号风险
+  $("#btnChaseRun")?.addEventListener("click", onRunChase);
+
   document.addEventListener("ssq:theme", () => {
     renderAll();
   });
@@ -625,6 +708,8 @@ function bindInteractions() {
           renderDistributionPanel();
         } else if (name === "trend") {
           renderTrendPanel();
+        } else if (name === "prize") {
+          renderPrizePanel();
         }
       });
     });
@@ -658,11 +743,280 @@ async function main() {
     computeStats();
     renderAll();
     bindInteractions();
+    setupDltLstmController(state.draws);
+    renderPrizePanel();
     showDltDataSourceBanner(source, fetchError);
     startCountdown();
   } catch (err) {
     showLoadError(String(err.message || err));
   }
+}
+
+/* ============================================================
+ * 奖级 / EV 面板
+ * ============================================================ */
+function renderPrizePanel() {
+  const band = $("#prizeBand")?.value || "expected";
+  const tickets = clamp(Number($("#prizeTickets")?.value || 100), 1, 10000);
+
+  const erBase = expectedReturn({ band, mode: "base" });
+  const erAdd = expectedReturn({ band, mode: "add" });
+  const edge = additionalBetEdge(band);
+
+  // KPI 对比
+  const kpiEl = $("#prizeKpiCompare");
+  if (kpiEl) {
+    const kpis = [
+      { label: "基本投注 EV", val: `${erBase.ev.toFixed(3)} 元`, color: "var(--text)" },
+      { label: "基本 payback", val: `${(erBase.evPerYuan * 100).toFixed(1)}%`,
+        color: erBase.evPerYuan > 0.5 ? "var(--gold)" : "var(--red-2)" },
+      { label: "追加投注 EV", val: `${erAdd.ev.toFixed(3)} 元`, color: "var(--text)" },
+      { label: "追加 payback", val: `${(erAdd.evPerYuan * 100).toFixed(1)}%`,
+        color: erAdd.evPerYuan > 0.5 ? "var(--gold)" : "var(--red-2)" },
+      { label: "追加 1 元增量 EV", val: `${edge.edge.toFixed(3)} 元`,
+        color: edge.edge > 0 ? "var(--dlt-front)" : "var(--red-2)" },
+      { label: "追加是否更划算", val: edge.edge > 0 ? "✅ 是" : "❌ 否",
+        color: edge.edge > 0 ? "var(--dlt-front)" : "var(--red-2)" },
+    ];
+    kpiEl.innerHTML = kpis.map((k) => `
+      <div class="bt-kpi">
+        <span>${k.label}</span>
+        <strong style="color:${k.color}">${k.val}</strong>
+      </div>
+    `).join("");
+  }
+
+  // 9 奖级表
+  const tbody = $("#prizeTable")?.querySelector("tbody");
+  if (tbody) {
+    const items = withPrizeProbabilities();
+    tbody.innerHTML = items.map((it) => {
+      const basePrize = it.type === "fixed" ? it.fixedPrize : it.estimateBands[band];
+      const addPrize = it.addBonusEnabled ? basePrize * (1 + 0.8) : basePrize;
+      const contribution = it.probability * basePrize;
+      const hits = it.hits.map((h) => `${h.f}+${h.b}`).join(" / ");
+      return `
+        <tr>
+          <td><strong>${it.label}</strong></td>
+          <td class="mono">${hits}</td>
+          <td class="mono">${(it.probability * 100).toExponential(2)}%</td>
+          <td class="mono">${Math.round(1 / it.probability).toLocaleString()}</td>
+          <td class="mono">${formatPrize(basePrize)}</td>
+          <td class="mono">${it.addBonusEnabled ? formatPrize(addPrize) : "—"}</td>
+          <td class="mono">${contribution.toFixed(4)} 元</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  // 追加增量明细
+  const addEl = $("#prizeAddEdge");
+  if (addEl) {
+    const lines = edge.detail.map((d) => `
+      <div class="diag-line">
+        <span>${d.label} (${(d.probability * 100).toExponential(2)}%)</span>
+        <strong class="mono">基 ${formatPrize(d.baseBonus)} → 追加加成 +${formatPrize(d.addBonus)}</strong>
+      </div>
+    `).join("");
+    addEl.innerHTML = `
+      ${lines}
+      <div class="diag-line" style="border-top:1px solid var(--stroke); margin-top:8px; padding-top:8px">
+        <span><strong>累计增量收益</strong></span>
+        <strong class="mono" style="color:${edge.edge > 0 ? "var(--dlt-front)" : "var(--red-2)"}">${edge.extraGain.toFixed(3)} 元</strong>
+      </div>
+      <div class="diag-line">
+        <span>额外成本</span>
+        <strong class="mono">1.000 元</strong>
+      </div>
+      <div class="diag-line">
+        <span><strong>追加 edge</strong></span>
+        <strong class="mono" style="color:${edge.edge > 0 ? "var(--dlt-front)" : "var(--red-2)"}">${edge.edge.toFixed(3)} 元</strong>
+      </div>
+    `;
+  }
+
+  // 总成本 / 总 EV
+  const batchEl = $("#prizeBatchSummary");
+  if (batchEl) {
+    const baseBatch = ticketsExpectedReturn(tickets, { band, mode: "base" });
+    const addBatch = ticketsExpectedReturn(tickets, { band, mode: "add" });
+    batchEl.innerHTML = `
+      <div class="diag-line"><span>注数</span><strong class="mono">${tickets}</strong></div>
+      <div class="diag-line"><span>基本投注总成本</span><strong class="mono">${baseBatch.totalCost.toFixed(0)} 元</strong></div>
+      <div class="diag-line"><span>基本投注总 EV</span><strong class="mono">${baseBatch.totalEv.toFixed(2)} 元</strong></div>
+      <div class="diag-line"><span>基本投注期望净收益</span><strong class="mono" style="color:${baseBatch.totalNetEv >= 0 ? "var(--dlt-front)" : "var(--red-2)"}">${baseBatch.totalNetEv.toFixed(2)} 元</strong></div>
+      <div class="diag-line" style="border-top:1px solid var(--stroke); margin-top:8px; padding-top:8px"><span>追加投注总成本</span><strong class="mono">${addBatch.totalCost.toFixed(0)} 元</strong></div>
+      <div class="diag-line"><span>追加投注总 EV</span><strong class="mono">${addBatch.totalEv.toFixed(2)} 元</strong></div>
+      <div class="diag-line"><span>追加投注期望净收益</span><strong class="mono" style="color:${addBatch.totalNetEv >= 0 ? "var(--dlt-front)" : "var(--red-2)"}">${addBatch.totalNetEv.toFixed(2)} 元</strong></div>
+    `;
+  }
+}
+
+function formatPrize(n) {
+  if (n >= 10000) return `${(n / 10000).toFixed(2)} 万`;
+  return `${n.toFixed(0)} 元`;
+}
+
+/* ============================================================
+ * 追号风险蒙特卡洛
+ * ============================================================ */
+function onRunChase() {
+  const btn = $("#btnChaseRun");
+  if (btn) { btn.disabled = true; btn.textContent = "模拟中..."; }
+  setTimeout(() => {
+    try {
+      const result = simulateChase({
+        runs: clamp(Number($("#chaseRuns")?.value || 2000), 200, 5000),
+        draws: clamp(Number($("#chaseDraws")?.value || 50), 5, 200),
+        ticketsPerDraw: clamp(Number($("#chaseTickets")?.value || 2), 1, 20),
+        bankroll: clamp(Number($("#chaseBankroll")?.value || 2000), 20, 1000000),
+        strategy: $("#chaseStrategy")?.value || "flat",
+        prizeBand: $("#chasePrizeBand")?.value || "expected",
+        seed: $("#chaseSeed")?.value || "chase",
+      });
+      renderChaseResult(result);
+      toast(`模拟完成：${result.runs} 次`);
+    } catch (e) {
+      toast(`模拟失败：${e.message || e}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "运行 2000 次蒙特卡洛"; }
+    }
+  }, 20);
+}
+
+function renderChaseResult(r) {
+  // KPI
+  const kpiEl = $("#chaseSummary");
+  if (kpiEl) {
+    const ruinColor = r.ruinProb > 0.3 ? "var(--red-2)" : r.ruinProb > 0.1 ? "var(--gold)" : "var(--dlt-front)";
+    const finalColor = r.finalMean >= r.bankroll ? "var(--dlt-front)" : "var(--red-2)";
+    const kpis = [
+      { label: "模拟次数", val: r.runs },
+      { label: "破产概率", val: `${(r.ruinProb * 100).toFixed(1)}%`, color: ruinColor },
+      { label: "终值均值", val: `${r.finalMean.toFixed(0)} 元`, color: finalColor },
+      { label: "终值中位数", val: `${r.finalMedian.toFixed(0)} 元` },
+      { label: "终值 5% 分位", val: `${r.finalP05.toFixed(0)} 元`, color: "var(--red-2)" },
+      { label: "终值 95% 分位", val: `${r.finalP95.toFixed(0)} 元`, color: "var(--dlt-front)" },
+      { label: "曾中过一等奖", val: `${(r.everJackpotProb * 100).toFixed(2)}%`,
+        color: r.everJackpotProb > 0 ? "var(--gold)" : "var(--muted)" },
+      { label: "曾中过二等奖", val: `${(r.everSecondProb * 100).toFixed(2)}%`,
+        color: r.everSecondProb > 0 ? "var(--gold)" : "var(--muted)" },
+    ];
+    kpiEl.innerHTML = kpis.map((k) => `
+      <div class="bt-kpi">
+        <span>${k.label}</span>
+        <strong style="color:${k.color || "var(--text)"}">${k.val}</strong>
+      </div>
+    `).join("");
+  }
+
+  // 资金曲线
+  const chartEl = $("#chaseChart");
+  if (chartEl) chartEl.innerHTML = renderChaseTrajectories(r);
+
+  // 终值直方图
+  const distEl = $("#chaseFinalDist");
+  if (distEl) distEl.innerHTML = renderFinalHistogram(r);
+
+  // 理性思考
+  const verdictEl = $("#chaseVerdict");
+  if (verdictEl) {
+    const expectedLossPerYuan = (r.bankroll - r.finalMean) / (r.draws * r.ticketsPerDraw * 2);
+    verdictEl.innerHTML = `
+      <div class="callout-title">数学事实</div>
+      <div class="callout-body">
+        在 ${r.runs} 次独立模拟里：
+        <ul style="margin-top:6px; padding-left:18px">
+          <li>有 <strong style="color:var(--red-2)">${(r.ruinProb * 100).toFixed(1)}%</strong> 的人在第 ${r.draws} 期前就<strong>破产</strong>。</li>
+          <li>账户余额最终的<strong>中位数</strong>是 <strong class="mono">${r.finalMedian.toFixed(0)} 元</strong>（初始 ${r.bankroll} 元）。</li>
+          <li>每花 1 元下注，<strong>平均回收</strong> ${expectedLossPerYuan >= 0 ? "+" : ""}${(2 - expectedLossPerYuan * 2).toFixed(2)} 元（payback ratio ${((2 - expectedLossPerYuan * 2) / 2 * 100).toFixed(1)}%）。</li>
+          <li>有 <strong>${(r.everJackpotProb * 100).toFixed(2)}%</strong> 的人在 ${r.draws} 期里中过一等奖。意味着 <strong>${Math.round(1 / Math.max(1e-6, r.everJackpotProb)).toLocaleString()} 个像你这样追号的人里才有 1 个</strong> 中一等。</li>
+        </ul>
+        <div style="margin-top:12px"><strong>结论：</strong>追号不能改变中奖概率，只能改变破产时间。<strong>"补到中"是赌徒谬误</strong>——大乐透每期独立。请理性消费、量力而行。</div>
+      </div>
+    `;
+  }
+}
+
+function renderChaseTrajectories(r) {
+  const W = 800, H = 220;
+  const padL = 50, padR = 12, padT = 10, padB = 24;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  if (!r.trajectories.length) return "";
+  // 找全局最大值
+  let maxBk = r.bankroll;
+  for (const path of r.trajectories) for (const v of path) if (v > maxBk) maxBk = v;
+  const yScale = (v) => padT + innerH - (Math.max(0, v) / maxBk) * innerH;
+  const xScale = (i, len) => padL + (i / Math.max(1, len - 1)) * innerW;
+
+  const lines = r.trajectories.map((path) => {
+    const ruined = path[path.length - 1] === 0 || path.length < r.draws + 1;
+    const color = ruined ? "rgba(255,80,80,0.45)" : "rgba(93,217,184,0.55)";
+    const pts = path.map((v, i) => `${xScale(i, r.draws + 1).toFixed(1)},${yScale(v).toFixed(1)}`).join(" ");
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1" stroke-linecap="round"/>`;
+  }).join("");
+
+  // baseline = 初始资金
+  const baselineY = yScale(r.bankroll);
+  const baseline = `<line x1="${padL}" x2="${padL + innerW}" y1="${baselineY}" y2="${baselineY}" stroke="rgba(255,255,255,.35)" stroke-dasharray="4 4"/>`;
+  const baselineLabel = `<text x="${padL + 4}" y="${baselineY - 4}" font-size="10" fill="rgba(255,255,255,.55)" font-family="JetBrains Mono, monospace">初始本金 ${r.bankroll}</text>`;
+
+  // y 轴刻度
+  const ticks = [0, 0.5, 1].map((p) => {
+    const v = maxBk * p;
+    const y = padT + innerH - p * innerH;
+    return `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="rgba(255,255,255,.5)" font-family="JetBrains Mono, monospace">${v.toFixed(0)}</text>`;
+  }).join("");
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>
+    ${baseline}${baselineLabel}${ticks}${lines}
+    <text x="${padL + innerW / 2}" y="${H - 4}" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.55)" font-family="JetBrains Mono, monospace">期数 0 → ${r.draws}</text>
+  </svg>`;
+}
+
+function renderFinalHistogram(r) {
+  const W = 800, H = 200;
+  const padL = 50, padR = 12, padT = 12, padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const data = r.finalBankroll;
+  if (!data.length) return "";
+  const minV = Math.min(...data);
+  const maxV = Math.max(...data);
+  const bins = 40;
+  const range = maxV - minV || 1;
+  const counts = Array(bins).fill(0);
+  for (const v of data) {
+    let b = Math.floor((v - minV) / range * bins);
+    if (b >= bins) b = bins - 1;
+    if (b < 0) b = 0;
+    counts[b]++;
+  }
+  const maxCount = Math.max(...counts);
+  const barW = innerW / bins;
+  const bars = counts.map((c, i) => {
+    const x = padL + i * barW;
+    const h = (c / Math.max(1, maxCount)) * innerH;
+    const y = padT + innerH - h;
+    const binV = minV + (i + 0.5) * range / bins;
+    const color = binV >= r.bankroll ? "var(--dlt-front)" : "var(--red-2)";
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(barW - 1).toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" opacity="0.65"/>`;
+  }).join("");
+  // baseline
+  const baseRatio = (r.bankroll - minV) / range;
+  const baseX = padL + Math.max(0, Math.min(1, baseRatio)) * innerW;
+  const baseLine = `<line x1="${baseX}" y1="${padT}" x2="${baseX}" y2="${padT + innerH}" stroke="rgba(255,255,255,.7)" stroke-dasharray="3 3"/>
+    <text x="${baseX + 4}" y="${padT + 12}" font-size="10" fill="rgba(255,255,255,.7)" font-family="JetBrains Mono, monospace">初始 ${r.bankroll}</text>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="rgba(255,255,255,.25)"/>
+    ${bars}${baseLine}
+    <text x="${padL}" y="${H - 8}" text-anchor="start" font-size="10" fill="rgba(255,255,255,.55)" font-family="JetBrains Mono, monospace">${minV.toFixed(0)}</text>
+    <text x="${padL + innerW}" y="${H - 8}" text-anchor="end" font-size="10" fill="rgba(255,255,255,.55)" font-family="JetBrains Mono, monospace">${maxV.toFixed(0)}</text>
+  </svg>`;
 }
 
 let countdownTimer = null;

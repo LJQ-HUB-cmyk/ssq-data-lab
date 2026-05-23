@@ -25,6 +25,16 @@ export {
   setRefreshLoading, showLoadError,
 };
 
+/** HTML 转义：用于把任意字符串安全嵌入 innerHTML。 */
+function escape(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 /* =========================================================
    Hero / Latest
    ========================================================= */
@@ -352,7 +362,7 @@ export function renderDltTicketAnalysis(result) {
   const el = $("#ticketAnalysis");
   if (!el) return;
   if (result.error) {
-    el.innerHTML = `<span class="chip chip-warn">${result.error}</span>`;
+    el.innerHTML = `<span class="chip chip-warn">${escape(result.error)}</span>`;
     return;
   }
 
@@ -371,16 +381,61 @@ export function renderDltTicketAnalysis(result) {
     ["后区奇偶", result.backOddEven],
   ];
   const hitText = result.historyHits.length
-    ? result.historyHits.map((d) => `${d.issue}${d.date ? ` · ${d.date}` : ""}`).join(" / ")
+    ? result.historyHits.map((d) => `${escape(d.issue)}${d.date ? ` · ${escape(d.date)}` : ""}`).join(" / ")
     : "历史上从未完整出现过";
+
+  // 健康度仪表盘（如果有诊断结果）
+  let healthSection = "";
+  if (result.diagnosis) {
+    const d = result.diagnosis;
+    const colorMap = {
+      green: "var(--dlt-front)",
+      amber: "var(--gold)",
+      red: "var(--red-2)",
+    };
+    const color = colorMap[d.healthLevel.color] || "var(--text)";
+    const dimensionsHtml = d.dimensions.map((dim) => {
+      const c = dim.score >= 75 ? "var(--dlt-front)" : dim.score >= 50 ? "var(--gold)" : "var(--red-2)";
+      return `
+        <div class="dim-card">
+          <div class="dim-head">
+            <span class="dim-icon">${dim.icon}</span>
+            <span class="dim-name">${escape(dim.name)}</span>
+            <strong class="mono dim-score" style="color:${c}">${dim.score}</strong>
+          </div>
+          <div class="dim-bar"><i style="width:${dim.score}%; background:${c}"></i></div>
+          <ul class="dim-reasons">
+            ${dim.reasons.slice(0, 2).map((r) => `<li>${escape(r)}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }).join("");
+    healthSection = `
+      <div class="health-summary" style="margin-bottom:14px">
+        <div class="health-score-wrap">
+          <div class="health-score-num mono" style="color:${color}">${d.totalScore}</div>
+          <div class="health-score-label">
+            <span style="color:${color}">${d.healthLevel.emoji} ${escape(d.healthLevel.label)}</span>
+            <em class="muted fine">健康度评分（满分 100）</em>
+          </div>
+        </div>
+        <div class="health-advice">${escape(d.advice).replaceAll("\n", "<br/>")}</div>
+      </div>
+      <div class="dim-grid">
+        ${dimensionsHtml}
+      </div>
+    `;
+  }
 
   el.innerHTML = `
     <div class="balls" style="margin-bottom:12px">
       ${result.front.map((r) => `<span class="ball front" style="width:32px;height:32px;font-size:12px">${pad2(r)}</span>`).join("")}
       ${result.back.map((b, i) => `<span class="ball back${i === 0 ? " plus" : ""}" style="width:32px;height:32px;font-size:12px">${pad2(b)}</span>`).join("")}
     </div>
+    ${healthSection}
+    <div class="card-title fine" style="margin-top:14px">详细分布指标</div>
     <div class="analysis-grid">
-      ${metrics.map(([k, v]) => `<div class="metric-line"><span>${k}</span><strong>${v}</strong></div>`).join("")}
+      ${metrics.map(([k, v]) => `<div class="metric-line"><span>${k}</span><strong>${escape(v)}</strong></div>`).join("")}
     </div>
     <div class="callout">
       <div class="callout-title">历史对照</div>
@@ -395,13 +450,6 @@ export function renderDltTicketAnalysis(result) {
 /* =========================================================
    Sampler diagnostics
    ========================================================= */
-
-function escape(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
 
 export function renderDltSamplerDiagnostics(diag, jackpotProb = 1 / 21425712) {
   const el = $("#samplerDiag");
