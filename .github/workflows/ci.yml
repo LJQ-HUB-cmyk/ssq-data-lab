@@ -98,3 +98,9 @@ jobs:
           PUPPETEER_EXECUTABLE_PATH: ${{ env.PUPPETEER_EXECUTABLE_PATH }}
         run: node tools/check_ssq_betting_panels.mjs
         timeout-minutes: 5
+
+      - name: 4 项功能增强（胆拖 / 体检 / 盈亏平衡 / χ²）
+        env:
+          PUPPETEER_EXECUTABLE_PATH: ${{ env.PUPPETEER_EXECUTABLE_PATH }}
+        run: node tools/check_enhancements.mjs
+        timeout-minutes: 3

@@ -176,3 +176,41 @@ export function historicalPrizeCounts(draws, getTickets) {
   }
   return { counts, totalTickets };
 }
+
+
+/**
+ * 反推：保持其他奖项 EV 贡献固定，让 EV ≥ cost 所需的"一等奖最低金额"。
+ * 用于"盈亏平衡奖池"提示。
+ *
+ * 用 expected band 算非一等奖固定贡献 → 反推一等奖。
+ * @returns { breakevenJackpot: number | null, currentBand: string }
+ *   null 表示数学上不可能（其他奖项已经足够，但实际不会发生）
+ */
+export function breakevenJackpot({ band = "expected", secondPrize = null } = {}) {
+  const items = withPrizeProbabilities();
+  const cost = TICKET_PRICE;
+  let nonJackpotContribution = 0;
+  let pJackpot = 0;
+  for (const it of items) {
+    if (it.level === 1) {
+      pJackpot = it.probability;
+      continue;
+    }
+    let prize;
+    if (it.level === 2 && secondPrize != null) {
+      prize = secondPrize;
+    } else {
+      prize = it.type === "fixed" ? it.fixedPrize : it.estimateBands[band];
+    }
+    nonJackpotContribution += it.probability * prize;
+  }
+  const remaining = cost - nonJackpotContribution;
+  if (remaining <= 0) return { breakevenJackpot: 0, currentBand: band, nonJackpotContribution };
+  if (pJackpot <= 0) return { breakevenJackpot: null, currentBand: band, nonJackpotContribution };
+  return {
+    breakevenJackpot: remaining / pJackpot,
+    currentBand: band,
+    nonJackpotContribution,
+    pJackpot,
+  };
+}

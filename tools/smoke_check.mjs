@@ -37,7 +37,7 @@ try {
         .find((el) => el.textContent.includes("LSTM"));
       if (tab) tab.click();
     });
-    await sleep(500);
+    await sleep(800);  // 等 mountTracker setTimeout 异步触发
 
     const trackerOk = await page.evaluate(() => {
       const ssq = document.querySelector("#lstmTrackerBody");

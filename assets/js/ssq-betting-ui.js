@@ -8,6 +8,7 @@
 
 import {
   expectedReturn, withPrizeProbabilities, ticketsExpectedReturn,
+  breakevenJackpot,
 } from "./ssq-prize.js";
 import { simulateChase } from "./ssq-chase.js";
 import { runSsqBacktest } from "./ssq-backtest.js";
@@ -68,14 +69,24 @@ export function renderSsqPrizePanel() {
   const batchEl = document.querySelector("#ssqPrizeBatchSummary");
   if (batchEl) {
     const batch = ticketsExpectedReturn(tickets, { band });
+    const breakeven = breakevenJackpot({ band });
+    const breakevenStr = breakeven.breakevenJackpot != null
+      ? `${(breakeven.breakevenJackpot / 10000).toFixed(0)} 万`
+      : "数学上不可能";
     batchEl.innerHTML = `
       <div class="diag-grid">
         <div class="diag-line"><span>${tickets} 注总成本</span><strong class="mono">${batch.totalCost.toLocaleString()} 元</strong></div>
         <div class="diag-line"><span>${tickets} 注总 EV</span><strong class="mono">${batch.totalEv.toFixed(2)} 元</strong></div>
         <div class="diag-line"><span>${tickets} 注期望净亏</span><strong class="mono" style="color:${PRIZE_LIGHT}">${batch.netEv.toFixed(2)} 元</strong></div>
         <div class="diag-line"><span>每元期望回收</span><strong class="mono">${(batch.payoutRatio).toFixed(3)} 元</strong></div>
+        <div class="diag-line">
+          <span>盈亏平衡所需一等奖</span>
+          <strong class="mono" style="color:var(--gold)">≥ ${breakevenStr}</strong>
+        </div>
       </div>
-      <div class="hint">每张 2 元彩票，期望回收约 <strong class="mono">${(er.ev).toFixed(2)} 元</strong>（payback ratio = <strong class="mono">${(er.payoutRatio * 100).toFixed(1)}%</strong>）。差额 <strong class="mono">${(er.cost - er.ev).toFixed(2)} 元</strong> 是国家公益金 + 运营成本。这是**所有彩票产品的本质**。</div>
+      <div class="hint">每张 2 元彩票，期望回收约 <strong class="mono">${(er.ev).toFixed(2)} 元</strong>（payback ratio = <strong class="mono">${(er.payoutRatio * 100).toFixed(1)}%</strong>）。差额 <strong class="mono">${(er.cost - er.ev).toFixed(2)} 元</strong> 是国家公益金 + 运营成本。
+        <strong style="color:var(--gold)">"盈亏平衡所需一等奖"</strong>是反推：在其他奖项当前估值固定时，一等奖至少需要多少元，单注 EV 才能 ≥ 2 元。SSQ 历史上几乎从未达到——当奖池滚到这个数字以上时，理论上"值得投"。
+      </div>
     `;
   }
 }

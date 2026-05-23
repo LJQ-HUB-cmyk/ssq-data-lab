@@ -32,8 +32,9 @@ import {
 } from "./distribution.js";
 import { redChi, blueChi, chiSquaredPValue } from "./chi-square.js";
 import { danTuoTickets, complexTickets, combinations, priceOf } from "./combinatorics.js";
+import { analyzeDantuo, analyzeComplex, singleTicketAnalysis } from "./dantuo-prize.js";
 import { buildTrendMatrix } from "./trend.js";
-import { missStats } from "./miss-stats.js";
+import { missStats, missStatsWithSignificance } from "./miss-stats.js";
 import {
   buildCooccurrenceMatrix,
   topPartners,
@@ -93,6 +94,9 @@ function computeStats() {
   state.freqRecentBlue = freqFromDraws(recent, "blue", BLUE_MAX);
   state.missRed = missCounts(state.draws, "reds", RED_MAX);
   state.missBlue = missCounts(state.draws, "blue", BLUE_MAX);
+  // χ² 显著性检验：找统计上"严格异常"的号码（Bonferroni 修正）
+  state.chiSquareRed = missStatsWithSignificance(state.draws, RED_MAX, 6, "reds");
+  state.chiSquareBlue = missStatsWithSignificance(state.draws, BLUE_MAX, 1, "blue");
 }
 
 function renderOverviewAndInsight() {
@@ -353,6 +357,7 @@ function analyseManualTicket() {
   const latest = state.draws[state.draws.length - 1];
   const key = reds.join(",");
   const historyHits = state.draws.filter((d) => d.blue === blue && d.reds.join(",") === key);
+  const prizeAnalysis = singleTicketAnalysis({ prizeBand: "expected" });
   renderTicketAnalysis({
     reds,
     blue,
@@ -369,20 +374,20 @@ function analyseManualTicket() {
     repeatReds: latest ? reds.filter((n) => latest.reds.includes(n)) : [],
     repeatBlue: latest ? latest.blue === blue : false,
     historyHits,
+    prizeAnalysis,
   });
 }
 
 function renderTools() {
   $("#btnCalcDanTuo").addEventListener("click", () => {
     try {
-      const n = danTuoTickets({
-        danCount: Number($("#danCount").value),
-        tuoCount: Number($("#tuoCount").value),
-        blueCount: Number($("#blueCount").value),
-      });
-      $("#danTuoResult").innerHTML =
-        `<div><strong class="mono big-num">${n.toLocaleString()}</strong> 注</div>
-         <div class="muted">合计 <strong class="mono">${priceOf(n).toLocaleString()}</strong> 元</div>`;
+      const danCount = Number($("#danCount").value);
+      const tuoCount = Number($("#tuoCount").value);
+      const blueCount = Number($("#blueCount").value);
+      const n = danTuoTickets({ danCount, tuoCount, blueCount });
+      // 中奖率分析（精确）
+      const analysis = analyzeDantuo({ danCount, tuoCount, blueCount, prizeBand: "expected" });
+      $("#danTuoResult").innerHTML = renderTicketsWithPrize(n, analysis);
     } catch (e) {
       $("#danTuoResult").innerHTML = `<span class="chip chip-warn">${e.message}</span>`;
     }
@@ -392,9 +397,8 @@ function renderTools() {
       const red = Number($("#complexRed").value);
       const blue = Number($("#complexBlue").value);
       const n = complexTickets(red, blue);
-      $("#complexResult").innerHTML =
-        `<div><strong class="mono big-num">${n.toLocaleString()}</strong> 注</div>
-         <div class="muted">合计 <strong class="mono">${priceOf(n).toLocaleString()}</strong> 元</div>`;
+      const analysis = analyzeComplex({ redCount: red, blueCount: blue, prizeBand: "expected" });
+      $("#complexResult").innerHTML = renderTicketsWithPrize(n, analysis);
     } catch (e) {
       $("#complexResult").innerHTML = `<span class="chip chip-warn">${e.message}</span>`;
     }
@@ -747,3 +751,59 @@ function startCountdown() {
 }
 
 window.addEventListener("DOMContentLoaded", main);
+
+
+/* ============================================================
+ * 胆拖 / 复式：注数 + 中奖率综合渲染
+ * ============================================================ */
+function renderTicketsWithPrize(n, analysis) {
+  const evColor = analysis.netEv >= 0 ? "var(--acid)" : "var(--red-2)";
+  const lvRows = analysis.byLevel.map((b) => {
+    const expected = b.expectedTickets;
+    const pct = (b.pAtLeastOne * 100).toFixed(b.pAtLeastOne < 0.001 ? 6 : 2);
+    return `
+      <tr>
+        <td class="fine">${b.label}</td>
+        <td class="mono fine">${expected < 1e-4 ? expected.toExponential(2) : expected.toFixed(4)}</td>
+        <td class="mono fine">${pct}%</td>
+        <td class="mono fine">${b.prize.toLocaleString()}</td>
+      </tr>
+    `;
+  }).join("");
+  const anyWinPct = (analysis.pAtLeastOneAny * 100).toFixed(analysis.pAtLeastOneAny < 0.01 ? 4 : 2);
+
+  return `
+    <div><strong class="mono big-num">${n.toLocaleString()}</strong> 注</div>
+    <div class="muted">合计 <strong class="mono">${priceOf(n).toLocaleString()}</strong> 元</div>
+    <div class="dantuo-mini-stats" style="margin-top:12px">
+      <div class="diag-line">
+        <span>至少中一注奖概率</span>
+        <strong class="mono" style="color:var(--gold)">${anyWinPct}%</strong>
+      </div>
+      <div class="diag-line">
+        <span>期望中奖注数</span>
+        <strong class="mono">${analysis.expectedAnyWin.toFixed(4)}</strong>
+      </div>
+      <div class="diag-line">
+        <span>每注期望中奖率</span>
+        <strong class="mono">${(analysis.expectedAnyWinPct * 100).toFixed(2)}%</strong>
+      </div>
+      <div class="diag-line">
+        <span>期望回报率（payback）</span>
+        <strong class="mono" style="color:${evColor}">${(analysis.payoutRatio * 100).toFixed(1)}%</strong>
+      </div>
+      <div class="diag-line">
+        <span>期望净收益</span>
+        <strong class="mono" style="color:${evColor}">${analysis.netEv.toFixed(2)} 元</strong>
+      </div>
+    </div>
+    <details class="dantuo-mini-table" style="margin-top:10px">
+      <summary class="fine muted" style="cursor:pointer">展开 6 奖级精确明细</summary>
+      <table class="table mini" style="margin-top:6px">
+        <thead><tr><th class="fine">奖级</th><th class="fine">期望注数</th><th class="fine">至少 1 注 P</th><th class="fine">奖金</th></tr></thead>
+        <tbody>${lvRows}</tbody>
+      </table>
+    </details>
+    <div class="hint" style="margin-top:8px">奖金按"期望"档浮动估计；payback &lt; 100% 表示长期亏损（彩票 EV 数学结论）。</div>
+  `;
+}

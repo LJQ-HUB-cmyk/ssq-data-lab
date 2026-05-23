@@ -145,7 +145,7 @@ export function renderTable(rows, note) {
 /* =========================================================
    Insight chips
    ========================================================= */
-export function renderInsightChips({ freqRecentRed, missRed, missBlue }) {
+export function renderInsightChips({ freqRecentRed, missRed, missBlue, chiSquareRed, chiSquareBlue } = {}) {
   const chips = $("#insightChips");
   chips.innerHTML = "";
   const items = [
@@ -154,6 +154,59 @@ export function renderInsightChips({ freqRecentRed, missRed, missBlue }) {
     { k: "红高遗漏", v: topN(missRed, 3, 33).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "" },
     { k: "蓝高遗漏", v: topN(missBlue, 2, 16).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "" },
   ];
+
+  // 增强：χ² 显著异常号
+  if (chiSquareRed) {
+    const hot = [];
+    const cold = [];
+    for (let i = 1; i <= 33; i++) {
+      const s = chiSquareRed.stats[i];
+      if (!s) continue;
+      if (s.isSignificantBonferroni) {
+        if (s.direction === "hot") hot.push([i, s.zScore]);
+        else if (s.direction === "cold") cold.push([i, s.zScore]);
+      }
+    }
+    hot.sort((a, b) => b[1] - a[1]);
+    cold.sort((a, b) => a[1] - b[1]);
+    const fmtChi = (arr) => arr.length === 0 ? "—" : arr.slice(0, 3).map(([n, z]) => `${pad2(n)}·z=${z.toFixed(1)}`).join(" / ");
+    items.push({
+      k: `红 χ² 严格热（Bonferroni p<${chiSquareRed.summary.bonferroniAlpha.toFixed(4)}）`,
+      v: fmtChi(hot),
+      kind: hot.length > 0 ? "warn" : "",
+    });
+    items.push({
+      k: "红 χ² 严格冷",
+      v: fmtChi(cold),
+      kind: "",
+    });
+  }
+  if (chiSquareBlue) {
+    const hot = [];
+    const cold = [];
+    for (let i = 1; i <= 16; i++) {
+      const s = chiSquareBlue.stats[i];
+      if (!s) continue;
+      if (s.isSignificant) {
+        if (s.direction === "hot") hot.push([i, s.zScore]);
+        else if (s.direction === "cold") cold.push([i, s.zScore]);
+      }
+    }
+    hot.sort((a, b) => b[1] - a[1]);
+    cold.sort((a, b) => a[1] - b[1]);
+    const fmtChi = (arr) => arr.length === 0 ? "—" : arr.slice(0, 3).map(([n, z]) => `${pad2(n)}·z=${z.toFixed(1)}`).join(" / ");
+    items.push({
+      k: `蓝 χ² 显著热（α=0.05）`,
+      v: fmtChi(hot),
+      kind: hot.length > 0 ? "warn" : "",
+    });
+    items.push({
+      k: "蓝 χ² 显著冷",
+      v: fmtChi(cold),
+      kind: "",
+    });
+  }
+
   for (const it of items) {
     const cls = it.kind ? `chip chip-${it.kind}` : "chip";
     chips.appendChild(createEl("div", { cls, html: `${it.k} <strong>${it.v}</strong>` }));
@@ -352,6 +405,34 @@ export function renderTicketAnalysis(result) {
     ? result.historyHits.map((d) => `${d.issue}${d.date ? ` · ${d.date}` : ""}`).join(" / ")
     : "历史上从未完整出现过";
 
+  // 单注精确中奖率（这是与单注 SSQ 标准相同的——胆拖 D=0 T=6 B=1）
+  let prizeBlock = "";
+  if (result.prizeAnalysis) {
+    const p = result.prizeAnalysis;
+    const lvRows = p.byLevel.map((b) => `
+      <tr>
+        <td class="fine">${b.label}</td>
+        <td class="mono fine">1 / ${Math.round(b.expectedTickets > 0 ? 1 / b.expectedTickets : Infinity).toLocaleString()}</td>
+        <td class="mono fine">${b.prize.toLocaleString()}</td>
+      </tr>
+    `).join("");
+    prizeBlock = `
+      <div class="card-title fine" style="margin-top:14px">单注中奖率（精确组合数）</div>
+      <div class="diag-grid">
+        <div class="diag-line"><span>至少中一注奖</span><strong class="mono" style="color:var(--gold)">${(p.pAtLeastOneAny * 100).toFixed(2)}%（约 1 / ${Math.round(1 / p.pAtLeastOneAny)}）</strong></div>
+        <div class="diag-line"><span>期望回报率</span><strong class="mono">${(p.payoutRatio * 100).toFixed(1)}%</strong></div>
+        <div class="diag-line"><span>期望净利</span><strong class="mono" style="color:var(--red-2)">${p.netEv.toFixed(3)} 元</strong></div>
+      </div>
+      <details style="margin-top:8px">
+        <summary class="fine muted" style="cursor:pointer">展开 6 奖级精确表</summary>
+        <table class="table mini" style="margin-top:6px">
+          <thead><tr><th class="fine">奖级</th><th class="fine">中奖几率</th><th class="fine">奖金</th></tr></thead>
+          <tbody>${lvRows}</tbody>
+        </table>
+      </details>
+    `;
+  }
+
   el.innerHTML = `
     <div class="balls" style="margin-bottom:12px">
       ${result.reds.map((r) => `<span class="ball red" style="width:32px;height:32px;font-size:12px">${pad2(r)}</span>`).join("")}
@@ -360,6 +441,7 @@ export function renderTicketAnalysis(result) {
     <div class="analysis-grid">
       ${metrics.map(([k, v]) => `<div class="metric-line"><span>${k}</span><strong>${v}</strong></div>`).join("")}
     </div>
+    ${prizeBlock}
     <div class="callout">
       <div class="callout-title">历史对照</div>
       <div class="callout-body">

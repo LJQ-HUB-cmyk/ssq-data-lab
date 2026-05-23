@@ -43,3 +43,78 @@ export function missStats(draws, size, field = "reds") {
   }
   return stats;
 }
+
+
+/**
+ * 增强版：返回 missStats + 每号码的 χ² p 值（"频次显著偏离均匀"的统计检验）
+ *
+ * 单号 χ² 用 binomial 近似：
+ *   期望次数 E = totalDraws × (pick / size)
+ *   观察次数 O = freq
+ *   χ²₁ = (O - E)² / E + (O' - E')² / E'   其中 O' = totalDraws - O，E' = ... (片刻)
+ *
+ * 单 cell goodness-of-fit：
+ *   χ² = (O - E)² / E（粗略）
+ *   严格用 binomial test 算双侧 p 值更准。
+ *
+ * 这里用 z-score（连续修正的二项近似）：
+ *   z = (O - E) / sqrt(E × (1 − pick/size))
+ *   p_two = 2 × (1 − Φ(|z|))
+ *
+ * @param draws 历史
+ * @param size  号码空间（33/16/35/12）
+ * @param pick  每期抽几个（6/1/5/2）
+ * @param field "reds"/"blue"/"front"/"back"
+ * @param alpha 显著性水平（默认 0.05），用于标记 isSignificant
+ * @returns 同 missStats，但每条加 { expected, zScore, pValue, isSignificant }
+ */
+export function missStatsWithSignificance(draws, size, pick, field = "reds", alpha = 0.05) {
+  const base = missStats(draws, size, field);
+  const total = draws.length;
+  const pPerNum = pick / size;          // 单号每期出现概率
+  const expected = total * pPerNum;
+  const variance = total * pPerNum * (1 - pPerNum);
+  const stdDev = Math.sqrt(variance);
+
+  for (let n = 1; n <= size; n++) {
+    const O = base[n].freq;
+    // z = (O - E) / sd
+    const z = stdDev > 0 ? (O - expected) / stdDev : 0;
+    const pTwo = 2 * (1 - normCdf(Math.abs(z)));
+    base[n].expected = expected;
+    base[n].zScore = z;
+    base[n].pValue = pTwo;
+    base[n].isSignificant = pTwo < alpha;
+    base[n].direction = O > expected ? "hot" : O < expected ? "cold" : "neutral";
+  }
+
+  // Bonferroni 修正（多重检验）：按号码数量调 alpha
+  const bonferroniAlpha = alpha / size;
+  for (let n = 1; n <= size; n++) {
+    base[n].isSignificantBonferroni = base[n].pValue < bonferroniAlpha;
+  }
+
+  return {
+    stats: base,
+    summary: {
+      total, pick, size, expected, stdDev,
+      alpha, bonferroniAlpha,
+      hotCount: base.filter((s, i) => i > 0 && s.isSignificant && s.direction === "hot").length,
+      coldCount: base.filter((s, i) => i > 0 && s.isSignificant && s.direction === "cold").length,
+      // Bonferroni 修正后的"真异常"
+      strictHot: base.filter((s, i) => i > 0 && s.isSignificantBonferroni && s.direction === "hot").length,
+      strictCold: base.filter((s, i) => i > 0 && s.isSignificantBonferroni && s.direction === "cold").length,
+    },
+  };
+}
+
+/** 标准正态 CDF（Abramowitz-Stegun 26.2.17）。 */
+function normCdf(x) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  const xx = Math.abs(x) / Math.SQRT2;
+  const t = 1.0 / (1.0 + p * xx);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-xx * xx);
+  return 0.5 * (1.0 + sign * y);
+}

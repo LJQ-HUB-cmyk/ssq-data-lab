@@ -4,7 +4,7 @@ import { $, $$, clamp, pad2, parseNumList } from "./utils.js";
 import { loadDltDraws } from "./dlt-data.js";
 import { DLT_CONFIG } from "./lottery-config.js";
 import {
-  zoneFreq, zoneCurrentMiss, topNFromFreq, zoneMissStats, buildZoneTrend,
+  zoneFreq, zoneCurrentMiss, topNFromFreq, zoneMissStats, zoneMissStatsWithSignificance, buildZoneTrend,
 } from "./lottery-stats.js";
 import { renderDltBars } from "./dlt-chart.js";
 import { renderDltTrend } from "./dlt-trend-chart.js";
@@ -13,7 +13,7 @@ import { generateDltAdvanced } from "./dlt-advanced-sampler.js";
 import { runDltBacktest } from "./dlt-backtest.js";
 import {
   expectedReturn, additionalBetEdge, withPrizeProbabilities,
-  ticketsExpectedReturn,
+  ticketsExpectedReturn, breakevenJackpot,
 } from "./dlt-prize.js";
 import { simulateChase } from "./dlt-chase.js";
 import {
@@ -83,6 +83,9 @@ function computeStats() {
   state.freqRecentBack = zoneFreq(recent, BACK_ZONE);
   state.missFront = zoneCurrentMiss(state.draws, FRONT_ZONE);
   state.missBack = zoneCurrentMiss(state.draws, BACK_ZONE);
+  // χ² 显著性
+  state.chiSquareFront = zoneMissStatsWithSignificance(state.draws, FRONT_ZONE);
+  state.chiSquareBack = zoneMissStatsWithSignificance(state.draws, BACK_ZONE);
   state.coMatrix = null; // lazy
 }
 
@@ -102,6 +105,8 @@ function renderOverviewAndInsight() {
     freqRecentFront: state.freqRecentFront,
     missFront: state.missFront,
     missBack: state.missBack,
+    chiSquareFront: state.chiSquareFront,
+    chiSquareBack: state.chiSquareBack,
   });
 
   renderDataTable();
@@ -842,6 +847,11 @@ function renderPrizePanel() {
   if (batchEl) {
     const baseBatch = ticketsExpectedReturn(tickets, { band, mode: "base" });
     const addBatch = ticketsExpectedReturn(tickets, { band, mode: "add" });
+    const beBase = breakevenJackpot({ band, mode: "base" });
+    const beAdd = breakevenJackpot({ band, mode: "add" });
+    const beStr = (b) => b.breakevenJackpot != null
+      ? `${(b.breakevenJackpot / 100000000).toFixed(2)} 亿`
+      : "数学上不可能";
     batchEl.innerHTML = `
       <div class="diag-line"><span>注数</span><strong class="mono">${tickets}</strong></div>
       <div class="diag-line"><span>基本投注总成本</span><strong class="mono">${baseBatch.totalCost.toFixed(0)} 元</strong></div>
@@ -850,6 +860,8 @@ function renderPrizePanel() {
       <div class="diag-line" style="border-top:1px solid var(--stroke); margin-top:8px; padding-top:8px"><span>追加投注总成本</span><strong class="mono">${addBatch.totalCost.toFixed(0)} 元</strong></div>
       <div class="diag-line"><span>追加投注总 EV</span><strong class="mono">${addBatch.totalEv.toFixed(2)} 元</strong></div>
       <div class="diag-line"><span>追加投注期望净收益</span><strong class="mono" style="color:${addBatch.totalNetEv >= 0 ? "var(--dlt-front)" : "var(--red-2)"}">${addBatch.totalNetEv.toFixed(2)} 元</strong></div>
+      <div class="diag-line" style="border-top:1px solid var(--stroke); margin-top:8px; padding-top:8px"><span>盈亏平衡所需一等奖（基本）</span><strong class="mono" style="color:var(--gold)">≥ ${beStr(beBase)}</strong></div>
+      <div class="diag-line"><span>盈亏平衡所需一等奖（追加）</span><strong class="mono" style="color:var(--gold)">≥ ${beStr(beAdd)}</strong></div>
     `;
   }
 }

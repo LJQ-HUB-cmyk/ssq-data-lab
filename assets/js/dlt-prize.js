@@ -254,3 +254,51 @@ export function historicalPrizeCounts(draws, getTickets) {
   }
   return { counts, totalTickets };
 }
+
+
+/**
+ * 反推：保持其他奖项 EV 贡献固定，让 EV ≥ cost 所需的"一等奖最低金额"。
+ * 用于"盈亏平衡奖池"提示。
+ *
+ * @param mode "base" | "add"
+ * @param secondPrize 二等奖金额（不传用 expected band）
+ */
+export function breakevenJackpot({ band = "expected", mode = "base", secondPrize = null } = {}) {
+  const items = withPrizeProbabilities();
+  const cost = mode === "add" ? TICKET_PRICE_ADD : TICKET_PRICE_BASE;
+  let nonJackpotContribution = 0;
+  let pJackpot = 0;
+  for (const it of items) {
+    if (it.level === 1) {
+      pJackpot = it.probability;
+      continue;
+    }
+    let prize;
+    if (it.level === 2 && secondPrize != null) {
+      prize = secondPrize;
+    } else {
+      prize = it.type === "fixed" ? it.fixedPrize : it.estimateBands[band];
+    }
+    if (mode === "add" && it.addBonusEnabled) prize *= (1 + ADD_PAYBACK_RATIO);
+    nonJackpotContribution += it.probability * prize;
+  }
+  const remaining = cost - nonJackpotContribution;
+  if (remaining <= 0) return { breakevenJackpot: 0, currentBand: band, mode, nonJackpotContribution };
+  if (pJackpot <= 0) return { breakevenJackpot: null, currentBand: band, mode, nonJackpotContribution };
+  // 加 mode：一等奖也享受 80% 加成
+  const jackpotMultiplier = (mode === "add" && SSQ_LIKE_ADD_FOR_JACKPOT(items)) ? (1 + ADD_PAYBACK_RATIO) : 1;
+  const effectivePJackpot = pJackpot * jackpotMultiplier;
+  return {
+    breakevenJackpot: remaining / effectivePJackpot,
+    currentBand: band,
+    mode,
+    nonJackpotContribution,
+    pJackpot,
+  };
+}
+
+function SSQ_LIKE_ADD_FOR_JACKPOT(items) {
+  // DLT 一等奖享受追加 80% 加成
+  const lv1 = items.find((i) => i.level === 1);
+  return lv1 ? lv1.addBonusEnabled : false;
+}

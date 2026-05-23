@@ -75,6 +75,49 @@ export function zoneMissStats(draws, zone) {
   return stats;
 }
 
+/** 增强版：附加 χ² 显著性 + Bonferroni 修正 + 方向标记。 */
+export function zoneMissStatsWithSignificance(draws, zone, alpha = 0.05) {
+  const stats = zoneMissStats(draws, zone);
+  const total = draws.length;
+  const pPerNum = zone.pick / zone.size;
+  const expected = total * pPerNum;
+  const variance = total * pPerNum * (1 - pPerNum);
+  const stdDev = Math.sqrt(variance);
+
+  for (let n = 1; n <= zone.size; n++) {
+    const O = stats[n].freq;
+    const z = stdDev > 0 ? (O - expected) / stdDev : 0;
+    const pTwo = 2 * (1 - normCdfApprox(Math.abs(z)));
+    stats[n].expected = expected;
+    stats[n].zScore = z;
+    stats[n].pValue = pTwo;
+    stats[n].isSignificant = pTwo < alpha;
+    stats[n].isSignificantBonferroni = pTwo < alpha / zone.size;
+    stats[n].direction = O > expected ? "hot" : O < expected ? "cold" : "neutral";
+  }
+  return {
+    stats,
+    summary: {
+      total, pick: zone.pick, size: zone.size, expected, stdDev,
+      alpha, bonferroniAlpha: alpha / zone.size,
+      hotCount: stats.filter((s, i) => i > 0 && s.isSignificant && s.direction === "hot").length,
+      coldCount: stats.filter((s, i) => i > 0 && s.isSignificant && s.direction === "cold").length,
+      strictHot: stats.filter((s, i) => i > 0 && s.isSignificantBonferroni && s.direction === "hot").length,
+      strictCold: stats.filter((s, i) => i > 0 && s.isSignificantBonferroni && s.direction === "cold").length,
+    },
+  };
+}
+
+function normCdfApprox(x) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  const xx = Math.abs(x) / Math.SQRT2;
+  const t = 1.0 / (1.0 + p * xx);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-xx * xx);
+  return 0.5 * (1.0 + sign * y);
+}
+
 /** 走势矩阵：每期 → marks。给走势图渲染器使用。 */
 export function buildZoneTrend(draws, zone, windowSize = 30) {
   const slice = draws.slice(-windowSize);

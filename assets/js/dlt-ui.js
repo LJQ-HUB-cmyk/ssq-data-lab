@@ -116,7 +116,7 @@ function missTopFromFreq(miss, n, size) {
   return pairs.slice(0, n);
 }
 
-export function renderDltInsightChips({ freqRecentFront, missFront, missBack }) {
+export function renderDltInsightChips({ freqRecentFront, missFront, missBack, chiSquareFront, chiSquareBack } = {}) {
   const chips = $("#insightChips");
   if (!chips) return;
   chips.innerHTML = "";
@@ -126,6 +126,40 @@ export function renderDltInsightChips({ freqRecentFront, missFront, missBack }) 
     { k: "前高遗漏", v: missTopFromFreq(missFront, 3, FRONT_SIZE).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "" },
     { k: "后高遗漏", v: missTopFromFreq(missBack, 2, BACK_SIZE).map(([n, v]) => `${pad2(n)}·${v}`).join(" / "), kind: "" },
   ];
+
+  // 增强：χ² 严格异常号
+  const fmtChi = (arr) => arr.length === 0 ? "—" : arr.slice(0, 3).map(([n, z]) => `${pad2(n)}·z=${z.toFixed(1)}`).join(" / ");
+  if (chiSquareFront) {
+    const hot = [], cold = [];
+    for (let i = 1; i <= FRONT_SIZE; i++) {
+      const s = chiSquareFront.stats[i];
+      if (!s) continue;
+      if (s.isSignificantBonferroni) {
+        if (s.direction === "hot") hot.push([i, s.zScore]);
+        else if (s.direction === "cold") cold.push([i, s.zScore]);
+      }
+    }
+    hot.sort((a, b) => b[1] - a[1]);
+    cold.sort((a, b) => a[1] - b[1]);
+    items.push({ k: `前 χ² 严格热（Bonferroni p<${chiSquareFront.summary.bonferroniAlpha.toFixed(4)}）`, v: fmtChi(hot), kind: hot.length > 0 ? "warn" : "" });
+    items.push({ k: "前 χ² 严格冷", v: fmtChi(cold), kind: "" });
+  }
+  if (chiSquareBack) {
+    const hot = [], cold = [];
+    for (let i = 1; i <= BACK_SIZE; i++) {
+      const s = chiSquareBack.stats[i];
+      if (!s) continue;
+      if (s.isSignificant) {
+        if (s.direction === "hot") hot.push([i, s.zScore]);
+        else if (s.direction === "cold") cold.push([i, s.zScore]);
+      }
+    }
+    hot.sort((a, b) => b[1] - a[1]);
+    cold.sort((a, b) => a[1] - b[1]);
+    items.push({ k: `后 χ² 显著热（α=0.05）`, v: fmtChi(hot), kind: hot.length > 0 ? "warn" : "" });
+    items.push({ k: "后 χ² 显著冷", v: fmtChi(cold), kind: "" });
+  }
+
   for (const it of items) {
     const cls = it.kind ? `chip chip-${it.kind}` : "chip";
     chips.appendChild(createEl("div", { cls, html: `${it.k} <strong>${it.v}</strong>` }));
