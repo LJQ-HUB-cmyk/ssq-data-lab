@@ -16,7 +16,7 @@
 
 ## Live Demo
 
-- **GitHub Pages**（海外友好）：<https://wanghao137.github.io/ssq-data-lab/>
+- **GitHub Pages**（海外友好）：<https://ljq-hub-cmyk.github.io/ssq-data-lab/>
 - **Cloudflare Pages**（国内友好镜像）：<https://ssq-data-lab.pages.dev/>
 - **大乐透入口**：<https://ssq-data-lab.pages.dev/dlt.html>
 
