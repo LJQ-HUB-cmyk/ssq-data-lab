@@ -1,6 +1,6 @@
 name: Update Lottery Data
 
-on:
+########on:
   schedule:
     # 北京时间每天 22:30 跑一次；无新开奖时脚本会 no-op。
     - cron: "30 14 * * *"
